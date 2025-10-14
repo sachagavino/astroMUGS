@@ -103,7 +103,7 @@ class Disk:
 	    	-r:                     distance from the star [au]
         """
         if self.sigma_gas_ref != None:
-            sigma_g = self.sigma_gas_ref*(r/(self.ref_radius))**(-self.p_exp)  #2 or not??
+            sigma_g = 2*self.sigma_gas_ref*(r/(self.ref_radius))**(-self.p_exp)  #2 or not??
         else:
             sigma_g = (1/self.dtogas)*self.sigma_d0*(r/(self.ref_radius))**(-self.p_exp)
         return sigma_g
@@ -294,10 +294,8 @@ class Disk:
         if self.settling == True:
             sigma_g = self.surfacedensity(r)
             for a in sizes[-1]:
-                #stoptime_mid =(np.sqrt(2*np.pi)*a*1e-4*self.rho_m)/sigma_g
                 stoptime_mid =(np.pi*a*1e-4*self.rho_m)/(2*sigma_g)
                 hd.append(hg/(np.sqrt(1 + stoptime_mid*(self.schmidtnumber/self.alpha))))
-            #stoptime_mid_single =(np.sqrt(2*np.pi)*self.dust.rsingle*1e-4*self.rho_m)/sigma_g
             stoptime_mid_single =(np.pi*self.dust.rsingle*1e-4*self.rho_m)/(2*sigma_g)
             hd_single = hg/(np.sqrt(1 + stoptime_mid_single*(self.schmidtnumber/self.alpha)))
             return np.array(hd), hd_single

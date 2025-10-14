@@ -1,7 +1,12 @@
+import numpy as np
+from astropy import units as u
+from astropy.modeling.models import BlackBody
+
 #-------------constants-------------   <-- Souldn't be changed
 pi = 3.141592653589793
 c = 299792458 #m.s-1
 h = 6.62607004E-34 #J.s
+h_erg = h*1e7 #erg.s
 hbar = 1.054571800E-34   #1.054571800E−34 #J.s
 kb = 1.38054e-16 #Boltzmann constant in erg.K-1
 k = 1.381e-23 #Boltzmann constant in J.K-1
@@ -51,3 +56,12 @@ Si_mass = 4.6637066e-26
 #S_mass = 
 #Cl_mass = 
 #Ar_mass =  
+
+##PLANCK'S LAW (erg.s-1.cm-2,Hz-1.ster-1)
+def black_body(T, lam):
+    from astropy import units as u
+    bb = BlackBody(temperature=T*u.K)
+    #bb = ((2*h_erg*freq**3)/c**2)*(1/(np.exp((h_erg*freq)/(kb*T)) - 1))*1e-4
+
+    return bb(lam*u.micron).value
+    #return bb

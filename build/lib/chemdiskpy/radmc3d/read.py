@@ -44,6 +44,41 @@ def grid(path, filename=None):
     return nx, ny, nz, x, y, z
 
 
+def stars(path, filename=None):
+    """
+    WARNING: not working more than one star and not working for binary files yet.
+    """
+
+    if (filename == None):
+        filename = path + "stars.inp"
+ 
+    f = open(filename,"r")
+
+    f.readline()
+    nstars, nb_lam = [int(x) for x in f.readline().split()]
+    r_star, m_star, x_star, y_star, z_star = [float(x) for x in f.readline().split()]
+
+    wave = np.empty((nb_lam,))
+    spectrum = np.empty((nb_lam,))
+
+    for j in range(0, nb_lam, 1):
+        wave[j] = float(f.readline())
+
+    first_line = float(f.readline())
+
+    if first_line < 0.:
+        Tstar = -first_line
+        spectrum=-1
+    else:
+        Tstar=-1
+        spectrum[0]=first_line
+        for j in range(1, nb_lam, 1):
+            spectrum[j] = float(f.readline())
+
+    return nb_lam, wave, r_star, m_star, Tstar, spectrum
+
+
+
 
 def dust_density(path, filename=None, ext=None, binary=False):
 
@@ -180,7 +215,65 @@ def localfield(path, filename=None):
 
     if (filename == None):
         filename = path + "mean_intensity.out"
-  
-    localfield = np.loadtxt(filename, skiprows=4)
 
-    return localfield
+    f = open(filename,"r")
+  
+    f.readline()
+    nb_pt = int(f.readline())
+    nlam_mono = int(f.readline())
+    wave_mono = np.empty((nlam_mono,))
+    localfield = np.empty((nlam_mono*nb_pt,))
+
+    #for nbl in range(0, nlam_mono):
+    wave_mono = [float(x) for x in f.readline().split()] #in Hz
+    wave_mono = np.asarray(wave_mono)
+
+    for j in range(0, nlam_mono*nb_pt, 1):
+        localfield[j] = float(f.readline())
+  
+    return nlam_mono, wave_mono, localfield
+
+
+def mcmono(path, filename=None):
+
+    if (filename == None):
+        filename = path + "mcmono_wavelength_micron.inp"
+    
+    f = open(filename,"r")
+
+    nblam_mono = int(f.readline())
+    wave_mono = np.empty((nblam_mono,))
+
+    for nbl in range(0, nblam_mono):
+        wave_mono[nbl] = f.readline().split()
+  
+    return nblam_mono, wave_mono
+
+
+
+def external_source(path, filename=None):
+    """
+    WARNING: not working more than one star and not working for binary files yet.
+    """
+
+    if (filename == None):
+        filename = path + "external_source.inp"
+ 
+    try:
+        f = open(filename,"r")
+
+        f.readline()
+        nb_lam = int(f.readline())
+
+        wave = np.empty((nb_lam,))
+        spectrum = np.empty((nb_lam,))
+
+        for j in range(0, nb_lam, 1):
+            wave[j] = float(f.readline())
+
+        for j in range(0, nb_lam, 1):
+            spectrum[j] = float(f.readline())
+    except FileNotFoundError:
+        spectrum = []
+
+    return spectrum

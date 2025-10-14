@@ -23,11 +23,14 @@ chemdiskpy/modeling/Structure.py
 chemdiskpy/modeling/__init__.py
 chemdiskpy/nautilus/__init__.py
 chemdiskpy/nautilus/coupling.py
+chemdiskpy/nautilus/read.py
 chemdiskpy/nautilus/write.py
+chemdiskpy/nautilus/network/activation_energies.in
 chemdiskpy/nautilus/network/gas_reactions.in
 chemdiskpy/nautilus/network/gas_species.in
 chemdiskpy/nautilus/network/grain_reactions.in
 chemdiskpy/nautilus/network/grain_species.in
+chemdiskpy/nautilus/network/surface_parameters.in
 chemdiskpy/plotting/__init__.py
 chemdiskpy/plotting/plot.py
 chemdiskpy/radmc3d/__init__.py

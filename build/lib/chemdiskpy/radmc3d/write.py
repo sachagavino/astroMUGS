@@ -332,3 +332,34 @@ def accretion_heating(x, y, z, accretionheating, gridstyle="regular"):
 
     f.close()
 
+
+def numberdens_mol(numberdens, species='CO', gridstyle="regular"):
+    '''
+    Desc: write numberdens_XXX.inp, where XXX is a chemical species
+    Args: 
+    '''
+    if (gridstyle == "regular"):
+        nx, ny = numberdens.shape
+        ncells = nx*ny
+
+    print('writing numberdens_{}.inp...'.format(species))
+
+    f = open("thermal/numberdens_{}.inp".format(species),"w")
+    f.write("1\n")
+    f.write("{0:d}\n".format(ncells))
+    if (gridstyle == "regular"):
+            for iy in range(ny):
+                for ix in range(nx):
+                    f.write("{0:e}\n".format(numberdens[ix,iy]))
+    f.close()
+
+def lines(species='CO', format='leiden'):
+    '''
+    Desc: write lines.inp
+    Args: species, format
+    '''
+    f = open("thermal/lines.inp","w")
+    f.write("2\n")
+    f.write("1\n")
+    f.write("{} {} 0 0 0".format(species,format))
+    f.close()

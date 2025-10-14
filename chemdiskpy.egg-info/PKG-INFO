@@ -1,18 +1,23 @@
-Metadata-Version: 2.1
+Metadata-Version: 2.4
 Name: chemdiskpy
-Version: 1.0.0
+Version: 1.0.1
 Summary: Thermal and chemical modeling of multiple grain-sized protoplanetary disks
-Home-page: UNKNOWN
 Author: Sacha Gavino
 Author-email: sacha.gavino@nbi.ku.dk
-License: UNKNOWN
-Platform: UNKNOWN
 Classifier: Programming Language :: Python :: 3
 Classifier: License :: OSI Approved :: MIT License
 Classifier: Operating System :: OS Independent
 Requires-Python: >=3.6
 Description-Content-Type: text/markdown
 License-File: LICENSE
+Dynamic: author
+Dynamic: author-email
+Dynamic: classifier
+Dynamic: description
+Dynamic: description-content-type
+Dynamic: license-file
+Dynamic: requires-python
+Dynamic: summary
 
 # chemdiskpy: Couple chemistry modeling with thermal modeling of protoplanetary disks with multiple grain sizes
 
@@ -191,4 +196,3 @@ plot.vertical_temp(r=100)
 ### RUN NAUTILUS DISK MODEL
 - Next step is to run as you would usually do the nautilus model in **chemistry/**.
 - This will be added in a future update.
-

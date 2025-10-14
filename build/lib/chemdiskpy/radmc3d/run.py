@@ -50,3 +50,6 @@ def localfield(nphot_mono=None, verbose=True, timelimit=7200):
         f.close()
     else:
         output = run(command.split(" "), cwd = 'thermal/', stderr=STDOUT, timeout=timelimit)
+
+def image():
+    print('making image here')
