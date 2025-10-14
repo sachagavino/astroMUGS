@@ -195,7 +195,7 @@ def vertical_temp(r=100):
 
     if nbspecies == 1:
         try:
-            temp = pd.read_table('chemistry/'+str(r)+'AU/1D_static.dat', sep="\s+", engine='python', header=None, comment='!')
+            temp = pd.read_table('chemistry/'+str(r)+'AU/1D_static.dat', sep=r"\s+", engine='python', header=None, comment='!')
         except IOError:
             print('plot.vertical_temp: radius {} does not exit in the model or path is not correct.'.format(r))
             sys.exit(1)
@@ -213,8 +213,8 @@ def vertical_temp(r=100):
         plt.show()
     elif nbspecies > 1:
         try:
-            static = pd.read_table('chemistry/'+str(r)+'AU/1D_static.dat', sep="\s+", engine='python', header=None, comment='!')
-            temp = pd.read_table('chemistry/'+str(r)+'AU/temperatures.dat', sep="\s+", engine='python', header=None)
+            static = pd.read_table('chemistry/'+str(r)+'AU/1D_static.dat', sep=r"\s+", engine='python', header=None, comment='!')
+            temp = pd.read_table('chemistry/'+str(r)+'AU/temperatures.dat', sep=r"\s+", engine='python', header=None)
         except IOError:
             print('plot.vertical_temp: radius = {} au does not exit in the model or path is not correct.'.format(r))
             sys.exit(1)
@@ -235,7 +235,7 @@ def vertical_temp(r=100):
         plt.show()
 
 def avz(r=100):
-    static = pd.read_table('chemistry/'+str(r)+'AU/1D_static.dat', sep="\s+", engine='python', header=None, comment='!', skiprows=1)
+    static = pd.read_table('chemistry/'+str(r)+'AU/1D_static.dat', sep=r"\s+", engine='python', header=None, comment='!', skiprows=1)
     #--PLOT FIGURE--
     fig = plt.figure(figsize=(9.6, 8.2))
     ax = fig.add_subplot(111)
@@ -263,7 +263,7 @@ def opacity():
     ax.set_ylim(1e-2,1e5)
     for opac in opaclist:
         name = opac.split("_")[1].split(".")[0]
-        kappa = pd.read_table(opac, sep="\s+", comment='#', header=None, skiprows=10)
+        kappa = pd.read_table(opac, sep=r"\s+", comment='#', header=None, skiprows=10)
         ax.loglog(kappa[0], kappa[1], linewidth=2, label=name)
     ax.tick_params(labelsize=22)
     ax.legend(fontsize=15)
@@ -278,7 +278,7 @@ def opacity():
     ax.set_ylim(1e-2,1e5)
     for opac in opaclist:
         name = opac.split("_")[1].split(".")[0]
-        kappa = pd.read_table(opac, sep="\s+", comment='#', header=None, skiprows=10)
+        kappa = pd.read_table(opac, sep=r"\s+", comment='#', header=None, skiprows=10)
         ax.loglog(kappa[0], kappa[2], linewidth=2, label=name)
     ax.tick_params(labelsize=22)
     ax.legend(fontsize=15)
@@ -293,7 +293,7 @@ def opacity():
     #ax.set_ylim(0,1)
     for opac in opaclist:
         name = opac.split("_")[1].split(".")[0]
-        kappa = pd.read_table(opac, sep="\s+", comment='#', header=None, skiprows=10)
+        kappa = pd.read_table(opac, sep=r"\s+", comment='#', header=None, skiprows=10)
         ax.loglog(kappa[0], kappa[3], linewidth=2, label=name)
     ax.tick_params(labelsize=22)
     ax.legend(fontsize=15)
@@ -302,7 +302,7 @@ def opacity():
 
 def localflux():
     #---1/ Get grid shape and reshape the local flux array accordingly
-    flux = pd.read_table('thermal/mean_intensity.out', sep="\s+", comment='#', header=None, skiprows=4)
+    flux = pd.read_table('thermal/mean_intensity.out', sep=r"\s+", comment='#', header=None, skiprows=4)
     grid = pd.read_table('thermal/amr_grid.inp', engine='python', skiprows=5)
     lam = pd.read_table('thermal/mcmono_wavelength_micron.inp', engine='python', header=None, skiprows=1)
     lam = lam[0].values

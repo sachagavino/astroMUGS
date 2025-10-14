@@ -393,15 +393,19 @@ def avnh_factor(nH_to_AV_conversion, dtogas, rgrain, nbz): # rgrain provided in 
 
 def static(path, dist, gas_density, T_gas, av_z, T_dust, dust_density, r_grain, avnh_fact, uvfactor):
     distance = dist
-    nh = gas_density
-    Tgas = T_gas
-    avz = av_z
+    nh = gas_density#*2
+    Tgas = T_gas*1.02
+    avz = av_z/1.05#*2.8
+    avz = np.where(avz>45, avz*1.05, avz)
+
+    #avz = np.where((avz >= 50) & (avz <= 72*1.4), avz*1.2, avz)
+    #avz = np.where((avz >= 40) & (avz <= 50*1.2), avz*1.1, avz)
     diff_coef = np.zeros(len(distance))
-    Tdust = T_dust #if 1 size. If several sizes, Tdust will be the surface weigthed temperature
+    Tdust = T_dust*1.02 #if 1 size. If several sizes, Tdust will be the surface weigthed temperature
     avnhfact = avnh_fact
     rgrain = r_grain*1e-4*np.ones(len(dist))
     inv_ab = gas_density/dust_density
-    uvf = uvfactor
+    uvf = uvfactor#*10
 
     static_array = np.stack((distance, nh, Tgas, avz, diff_coef, Tdust, inv_ab, avnhfact, rgrain, uvf), axis=-1)
     header_static = "z [AU] ; H Gas density [part/cm^3] ; Tgas [K] ; Av [mag] ; Diffusion coef [cm^2/s]; Tdust [K]; 1/ab of grains ; AV/NH conversion factor ; Grain radius (cm) ; uv factor in unit of the reference flux"

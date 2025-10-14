@@ -2,7 +2,7 @@
 _____________________________________________________________________________________________________________
 file name: Grid
 @author: P.Sheehan. Adapted by S. Gavino for chemistry codes.
-last update: Aug 2021
+last update: Aug 2022
 language: PYTHON 3.8
 short description:  class Grid for young stellar objects modeling. 
 _____________________________________________________________________________________________________________
@@ -95,7 +95,14 @@ class Grid:
         self.w2 = w2
         self.w3 = w3
 
-    def set_nautilus_grid(self, r, max_H=4, nz_chem=64):
+    def set_chemdisk_grid(self, r, max_H=4, nz_chem=64):
+        """
+        desc: Spatial grid for disk chemistry model. Defined from a upper limit for the disk atmosphere.
+        args:
+        -max_H: disk maximum gas scale height below which chemistry grid exists.
+        -nz_chem: number of vertical spatial points. Same at all radii.
+        -r: radii in au.
+        """
         #hg = self.disk.scaleheight(np.array(r))
         pts = np.arange(0, nz_chem, 1)
         #zchem = np.ones((len(rchem), nb_points))
@@ -106,6 +113,51 @@ class Grid:
         self.rchem = np.array(r)
         self.zchem = z
         self.nz_chem = nz_chem
+
+
+    def set_chem_grid(self, r, z0=0, zmax=None, msize=None, nbcells=70):
+        """
+        desc: Custom spatial grid for chemistry model. Can be disk, envelope...
+        args:
+        -r [au]: radii in au. Must be 1D array of dim = number of radii. Must be inside the radmc3d model.
+        -z0 [au]: minimum altitude. Zero by default.
+        -zmax [au]: maximum altitude. 
+        -msize [au]: modele size in AU if the model is spherical, the user can give msize in order to compute the zmax at each radius.
+        -nbcells: number of vertical cells. Same for all radii.  
+        """
+        self.nz_chem = nbcells
+ 
+        if zmax != None: #if user provides maximum altitude in au, it sets the maximum z at all radii. By default the minimum value z0 is 0. That creates a 2D structure.
+            self.rchem = np.array(r)
+            z = np.zeros((len(self.rchem), nbcells))
+            for idx, rval in enumerate(self.rchem):
+                z[idx,:] = np.linspace(z0, zmax, nbcells)
+            self.zchem = np.flip(np.array(z), axis=1) #flip because the user gives increasing values and nautilus needs decreasing values.
+
+        if msize != None: #if user wants the altitude max such that the model is a sphere i.e. zmax at each radius follows the spherical structure.
+            zmax = np.sqrt(msize**2 - r**2)  # gives max altitude at each radius (polar coordinates).
+            zmax = zmax[:-1] # remove the last value because it is zmax = 0 au.
+
+            self.rchem = r[:-1] # because we removed the last zmax.
+            z = np.zeros((len(self.rchem), nbcells))
+
+            for idx, zmax_x in enumerate(zmax):
+                z[idx,:] = np.linspace(0, zmax_x, nbcells)
+
+            self.zchem = np.flip(z, axis=1) #flip because the user gives increasing values and nautilus needs decreasing values.
+
+            #dz = np.tan(np.pi/nbthetas)*self.rchem #0.0175 is pi/number of thetas.
+
+            # import matplotlib.pyplot as plt
+            # fig = plt.figure(figsize=(8, 8.))
+            # ax = fig.add_subplot(111)
+            # ax.plot(self.rchem, zmax)
+            # plt.xlim(0, 5005)
+            # plt.ylim(0, 5005)
+            # #plt.show()
+
+
+
 
     def set_wavelength_grid(self, lmin, lmax, nlam, log=False): #microns
         if log:
