@@ -26,6 +26,13 @@ class Grid:
         self.isrf = []
         self.dust = []
         self.accretionheating = []
+        self.chemradii = []
+        self.chemparam = []
+        self.chemgrid = {}
+
+    #-----
+    # ADD/CREATE GRID STRUCTURES THAT EXIST OR THAT HAVE BEEN CREATED.
+    #-----
 
     def add_star(self, star):
         self.stars.append(star)
@@ -68,7 +75,25 @@ class Grid:
 
     def add_accretionheating(self, q_visc):
         self.accretionheating.append(q_visc)
+
+    def add_existingchemradii(self,existingchemradii):
+        #args: chemgrid corresponds to an array with the radius and z points.
+        self.chemradii.append(existingchemradii) 
+    
+    def add_existingchemparam(self,existingchemparam):
+        #args: chemgrid corresponds to an array with the radius and z points.
+        self.chemparam.append(existingchemparam)    
+
+    def add_existingchemgrid(self,existingchemgrid, species):
+        #args: chemgrid corresponds to an array with the radius and z points.
+        self.chemgrid[species] = existingchemgrid    
+
         
+
+    #-----
+    # SET GRID STRUCTURES.
+    #-----
+
     def set_cartesian_grid(self, xmin, xmax, nx):
         #w1, w2, w3 provide grid with coordinates using the center of each cell.
         self.coordsystem = "cartesian"
@@ -83,17 +108,23 @@ class Grid:
 
         return np.stack((x, y, z)), np.stack((w1, w2, w3))
 
-
-    def set_spherical_grid(self, w1, w2, w3):
+    def set_spherical_grid(self, rmin, rmax, nr, ntheta, nphi, log=True):
         self.coordsystem = "spherical"
+        if log:
+            rad = np.logspace(np.log10(rmin), np.log10(rmax), nr, base=10)
+        else:
+            rad = np.linspace(rmin, rmax, nr)
 
-        self.r = 0.5*(w1[0:w1.size-1] + w1[1:w1.size])
-        self.theta = 0.5*(w2[0:w2.size-1] + w2[1:w2.size])
-        self.phi = 0.5*(w3[0:w3.size-1] + w3[1:w3.size])
+        theta_angle = np.linspace(0.0, np.pi, ntheta)
+        phi_angle = np.linspace(0.0, 2*np.pi, nphi)
 
-        self.w1 = w1
-        self.w2 = w2
-        self.w3 = w3
+        self.r = 0.5*(rad[0:rad.size-1] + rad[1:rad.size])
+        self.theta = 0.5*(theta_angle[0:theta_angle.size-1] + theta_angle[1:theta_angle.size])
+        self.phi = 0.5*(phi_angle[0:phi_angle.size-1] + phi_angle[1:phi_angle.size])
+
+        self.rad = rad
+        self.theta_angle = theta_angle
+        self.phi_angle = phi_angle
 
     def set_chemdisk_grid(self, r, max_H=4, nz_chem=64):
         """
@@ -156,15 +187,13 @@ class Grid:
             # plt.ylim(0, 5005)
             # #plt.show()
 
-
-
-
     def set_wavelength_grid(self, lmin, lmax, nlam, log=False): #microns
         if log:
             self.lam = np.logspace(np.log10(lmin), np.log10(lmax), \
                     nlam)
         else:
             self.lam = np.linspace(lmin, lmax, nlam)
+
 
     def set_mcmonowavelength_grid(self, lmin, lmax, nlam, log=False):
         if log:

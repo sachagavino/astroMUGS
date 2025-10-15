@@ -15,8 +15,9 @@ class Model:
 
     def __init__(self):
         self.grid = Grid()
+        self.nautilus = nautilus
 
-    def thermal(self, nphot=1e4, run=True, write=True, write_dens=True, \
+    def continuum_radiative(self, nphot=1e4, run=True, write=True, write_dens=True, \
                                            write_grid=True, \
                                            write_opac=True, \
                                            write_control=True, \
@@ -47,58 +48,77 @@ class Model:
                            **keywords)
 
         if write_dens == False or write_grid == False or write_control == False or write_opac == False or write_star == False or write_wave == False:
-            print('Some RADMC3D input files will not be created. Will continue... but errors can be raised if one or more required input files are missing.\n')
+            print('WARNING: because write_dens and others == False, the code assumes the user already created the files or will create them later from chemistry model. Will continue... but errors can be raised.\n')
 
         if run == True:
             self.run_thermal_radmc3d(nphot=nphot, **keywords)
 
         else:
             print("Dust thermal simulation was not run because the user set 'run=False'. This is fine. Will continue.")
-            print("Unless the file dust_temperature.dat does not exist, in that case, set 'run=True' and come back.")
 
 
+        # THIS SECTION READS THE THERMAL FILES IF THE FILES EXIST.
+        # IF THE FILES DO NOT EXIST, A WARNING IS PRINTED BUT THE CODE CONTINUES. ERRORS CAN BE RAISED. 
+        # WHY DOES THE CODE CONTINUE? BECAUSE SOMETIMES THE USER MAY WANT TO RUN THE CHEMISTRY WITHOUT HAVING A DUST STRUCTURE (E.G. IF THEY WANT TO DERIVE DUST_DENSITY.INP FROM AN EXISTING CHEMISTRY MODEL).
+        # ---- READ SECTION ----
+        densityfile = thermpath + "dust_density.inp"
+        starfile = thermpath + "stars.inp"
+        temperaturefile = thermpath + "dust_temperature.dat"
 
-   
-        # READ THERMAL FILES
-        nx, ny, nz, x, y, z  = radmc3d.read.grid(thermpath)
-        self.grid.set_spherical_grid(x, y, z) #return self.grid.r, self.grid.theta. Necessary in case the user does not create themeselves the radmc3d files.
-        dust_density = radmc3d.read.dust_density(thermpath) # Gives a list of one numpy array. Will be updated when multiple structures
-        nbspecies = int(len(dust_density[0])/(nx*ny*nz))
+        if os.path.exists(densityfile):
 
-        dust_density = np.reshape(dust_density[0], (nbspecies, nz, ny, nx))
-        dust_density[dust_density<=1e-100] = 1e-100 # get a minimum dust density in order to avoid absurd values for chemistry.
+            # READ THERMAL FILES
+            nx, ny, nz, x, y, z  = radmc3d.read.grid(thermpath)
+            self.grid.set_spherical_grid(x, y, z) #return self.grid.r, self.grid.theta. Necessary in case the user does not create themeselves the radmc3d files.
+            dust_density = radmc3d.read.dust_density(thermpath) # Gives a list of one numpy array. Will be updated when multiple structures
+            nbspecies = int(len(dust_density[0])/(nx*ny*nz))
 
-        nb_lam, lam, r_star, m_star, Tstar, spectrum = radmc3d.read.stars(thermpath)  #read stars file.
+            dust_density = np.reshape(dust_density[0], (nbspecies, nz, ny, nx))
+            dust_density[dust_density<=1e-100] = 1e-100 # get a minimum dust density in order to avoid absurd values for chemistry.
 
-        self.grid.temperature = radmc3d.read.dust_temperature(thermpath)
-        if len(self.grid.temperature) > 0:
-            self.grid.temperature[0] = np.reshape(self.grid.temperature[0], (nbspecies, nz, ny, nx)) 
+            if os.path.exists(temperaturefile):
 
-            if nbspecies > 1:
-                a = []
-                dustmass = []
-        
-                for istruc in range(0, len(self.grid.dust)): # create a loop in order to gather all grain sizes into one single array that will be used to compute the area-weighted temperature Ta.
-                    dustmodel = self.grid.dust[istruc] 
-                    #dustmass = dustmodel.grainmass() # gram
-                    sizes = dustmodel.sizes()
-                    #a = sizes[-1]*1e-4 # cm
-                    a.append(sizes[-1]*1e-4) # cm
-                    dustmass.append(dustmodel.grainmass()) # gram
-                a = np.hstack(a) # in order to get a numpy list of all sizes no matter how many structures there are.
-                dustmass = np.hstack(dustmass)
+                self.grid.temperature = radmc3d.read.dust_temperature(thermpath)
+                if len(self.grid.temperature) > 0:
+                    self.grid.temperature[0] = np.reshape(self.grid.temperature[0], (nbspecies, nz, ny, nx)) 
 
-                Ta_num = np.zeros((nz, ny, nx))
-                Ta_denum = np.zeros((nz, ny, nx))
+                    if nbspecies > 1:
+                        a = []
+                        dustmass = []
+                
+                        for istruc in range(0, len(self.grid.dust)): # create a loop in order to gather all grain sizes into one single array that will be used to compute the area-weighted temperature Ta.
+                            dustmodel = self.grid.dust[istruc] 
+                            #dustmass = dustmodel.grainmass() # gram
+                            sizes = dustmodel.sizes()
+                            #a = sizes[-1]*1e-4 # cm
+                            a.append(sizes[-1]*1e-4) # cm
+                            dustmass.append(dustmodel.grainmass()) # gram
+                        a = np.hstack(a) # in order to get a numpy list of all sizes no matter how many structures there are.
+                        dustmass = np.hstack(dustmass)
 
-                for idx in range(len(a)):
-                    Ta_num += self.grid.temperature[0][idx, :, :, :]*(dust_density[idx, :, :, :]/dustmass[idx])*a[idx]**2
-                    Ta_denum += (dust_density[idx, :, :, :]/dustmass[idx])*a[idx]**2
-                self.Ta = Ta_num/Ta_denum  #Ta is the area-weighted dust temperature.
+                        Ta_num = np.zeros((nz, ny, nx))
+                        Ta_denum = np.zeros((nz, ny, nx))
+
+                        for idx in range(len(a)):
+                            Ta_num += self.grid.temperature[0][idx, :, :, :]*(dust_density[idx, :, :, :]/dustmass[idx])*a[idx]**2
+                            Ta_denum += (dust_density[idx, :, :, :]/dustmass[idx])*a[idx]**2
+                        self.Ta = Ta_num/Ta_denum  #Ta is the area-weighted dust temperature.
+                    else:
+                        self.Ta = self.grid.temperature[0][0,:,:,:]
+                else:
+                    print(f"\n{temperaturefile} exist but is empty or corrupted.\n")
+
             else:
-                self.Ta = self.grid.temperature[0][0,:,:,:]
+                print(f"WARNING: {temperaturefile} does not exist.")
+
         else:
-            print('\nNo dust temperature file was found. If coupling_temp is True the chemistry model cannot be created.\n\n')
+            print(f"WARNING: {densityfile} does not exist.")
+
+        if os.path.exists(starfile):
+            nb_lam, lam, r_star, m_star, Tstar, spectrum = radmc3d.read.stars(thermpath)  #read stars file.
+        else:
+            print(f"WARNING: {starfile} does not exist.")
+        #---- END OF READ SECTION
 
 
     def localfield(self, nphot_mono=1e6, write_mcmono=False, run=True, **keywords):
@@ -132,8 +152,8 @@ class Model:
         radmc3d.run.localfield(nphot_mono=nphot_mono, verbose=verbose, timelimit=timelimit)
 
 
-    def run_image_radmc3d(self, npix=1e6, lambda_micron=1300, incl=90, verbose=True, **keywords):
-        radmc3d.run.image(npix=npix, lambda_micron=lambda_micron, incl=incl)
+    def run_image_radmc3d(self, npix=300, lambda_micron=None, iline=None, incl=None, verbose=True):
+        radmc3d.run.image(npix=npix, lambda_micron=lambda_micron, iline=iline, incl=incl, verbose=verbose, timelimit=7200)
 
 
     def write_radmc3d(self, write, write_dens, write_grid, write_opac, write_control, write_star, write_wave, write_mcmono, write_ext, **keywords):
@@ -441,16 +461,17 @@ class Model:
                              write_numberdens=True, \
                              write_lines=True, \
                              lines_format='leiden', \
-                             path='chemistry/', \
-                             incl=90, npix=800, \
-                             iline=1, \
+                             path='chemistry/', #relative or absolute path\
+                             incl=90, \
+                             npix=800, \
+                             iline=None, \
+                             lambda_micron=None, \
                              widthkms=10, \
                              linenlam=100, \
                              itime=59, \
                              species='CO', \
                              **keywords):
         thermpath='thermal/'
-        chempath = 'chemistry/'
 
 
         if write_numberdens==True:
@@ -460,12 +481,12 @@ class Model:
             nx, ny, nz, x, y, z  = radmc3d.read.grid(thermpath) # read grid
             self.grid.set_spherical_grid(x, y, z) #return self.grid.r (cm), self.grid.theta.
 
-            r_naut, zz_naut, dens_mol_nautilus = nautilus.read.abundance(path=path, itime=itime, species=species)
-            numberdens_sph = nautilus.coupling.to_spherical(dens_mol_nautilus, nx, ny, nz, self.grid.r/autocm, self.grid.theta, r_naut, zz_naut)
-            radmc3d.write.numberdens_mol(numberdens_sph, species=species, gridstyle="regular")
+            r_naut, zz_naut, dens_mol_nautilus = nautilus.read.abundance(path=path, itime=itime, species=species) #read abundances of chosen species from Nautilus output files.
+            numberdens_sph = nautilus.coupling.to_spherical(dens_mol_nautilus, nx, ny, nz, self.grid.r/autocm, self.grid.theta, r_naut, zz_naut) #convert abundances into spherical grid.
+            radmc3d.write.numberdens_mol(numberdens_sph, species=species, gridstyle="regular") #write numberdens_mol.inp file for RADMC-3D.
 
         if write_lines == True:
             radmc3d.write.lines(species=species, format=lines_format)
 
         if make_image == True:
-            self.run_image_radmc3d(incl=incl, npix=npix, **keywords)
+            self.run_image_radmc3d(incl=incl, npix=npix, iline=iline,  lambda_micron=lambda_micron, **keywords)

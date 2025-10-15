@@ -9,7 +9,7 @@ ________________________________________________________________________________
 from __future__ import absolute_import
 import os, sys, inspect
 import numpy as np
-#test
+
 from .. constants.constants import mu, autocm, amu, Ggram, kb, M_sun
 
 currentdir = os.path.dirname(os.path.abspath(inspect.getfile(inspect.currentframe())))

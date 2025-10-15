@@ -13,7 +13,7 @@ ________________________________________________________________________________
 
 import numpy as np
 from scipy.optimize import brenth
-from scipy.integrate import trapz
+from scipy.integrate import trapezoid
 
 from .. constants.constants import mu, autocm, amu, Ggram, kb, M_sun
 
