@@ -40,6 +40,8 @@ var/
 .installed.cfg
 *.egg
 
+chemdisk-token.txt
+
 # Logs and databases #
 ######################
 *.log
