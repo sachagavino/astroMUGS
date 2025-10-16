@@ -18,8 +18,8 @@ class Model:
         self.nautilus = nautilus
 
     def run_continuum(self, nphot=1e4, \
-                                  write_control=False, \
-                                  **keywords):
+                            write_control=False, \
+                            **keywords):
         """ 
         Notes:
         run MC dust radiative transfer, open the resulting dust temperature as an array and computes the surface-area weigthed temperature. If run == False, user assumes the RADMC3D output files already exist.
@@ -149,6 +149,7 @@ class Model:
             nx, ny, nz, x, y, z  = radmc3d.read.grid(thermpath) # read grid. the amr_grid.inp shows the border of the cells so we convert them.
             self.grid.set_spherical_grid(x[0]/autocm, x[-1]/autocm, nx+1, ny+1, nz+1, log=True)
             x, y, z = self.grid.r, self.grid.theta, self.grid.phi
+            y[0] = 0
             y[-1] = np.pi  # to avoid numerical issues.
         elif hasattr(self.grid, 'r_edge') and self.grid.r_edge is not None:
             nx, ny, nz, x, y, z = self.grid.nr, self.grid.ntheta, self.grid.nphi, self.grid.r, self.grid.theta, self.grid.phi
@@ -283,9 +284,8 @@ class Model:
             print('\nWARNING: no RADMC3D file are created.\n')
             print('----------------------------\n')
                 
-    def write_line(self, control=False, numberdens=False, line=False, gasvelocity=False, gastemp=False, microturb=False, line_format='leiden', species='CO' **keywords):
+    def write_line(self, control=False, line=False, gasvelocity=False, gastemp=False, microturb=False, line_format='leiden', species='CO', star_mass=1, **keywords):
         #os.system("rm thermal/*.inp")
-
 
         if not os.path.exists('thermal'):
             os.makedirs('thermal')
@@ -301,7 +301,7 @@ class Model:
             radmc3d.write.lines(species=species, format=line_format)
             
         if gasvelocity == True:
-            radmc3d.write.gas_velocity(self.grid.gasvelocity, gridstyle="regular")
+            radmc3d.write.gas_velocity(star_mass=star_mass, r=self.grid.r, theta=self.grid.theta, phi=self.grid.phi, object="disk")   
 
 
     # ----WRITE NAUTILUS INPUT FILES----
@@ -316,7 +316,7 @@ class Model:
         # REMOVE IF EXISTS AND CREATE CHEMISTRY FOLDER
         #-----------------------------------------
         thermpath='thermal/'
-        chempath = 'chemistry/'
+        chempath = self.chempath
         if os.path.exists(chempath):
             shutil.rmtree(chempath)
         os.makedirs(chempath)

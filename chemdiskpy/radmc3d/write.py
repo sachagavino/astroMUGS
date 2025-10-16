@@ -1,3 +1,6 @@
+import numpy as np
+from .. constants.constants import M_sun, Ggram, autocm
+
 def control(incl_dust=None, incl_lines=None, incl_freefree=None, \
         nphot_therm=None, nphot_scat=None, nphot_mono=None, nphot_spec=None, iseed=None, \
         ifast=None, enthres=None, itempdecoup=None, istar_sphere=None, \
@@ -365,8 +368,31 @@ def lines(species='CO', format='leiden'):
     f.close()
 
 
-def gas_velocity():
+def gas_velocity(star_mass, r, theta, phi, object="disk"):
     '''
     Desc: write gas_velocity.inp
     Args: species, format
     '''    
+
+    nr, ntheta, nphi = len(r), len(theta), len(phi)
+
+    # Create 3D grids
+    rr, tt, pp = np.meshgrid(r*autocm, theta, phi, indexing='ij')
+
+    # Keplerian azimuthal velocity
+    vphi = np.sqrt(Ggram * star_mass*M_sun / rr)
+
+    # Convert to Cartesian
+    vx = -vphi * np.sin(pp)
+    vy =  vphi * np.cos(pp)
+    vz = np.zeros_like(vx)
+
+    # Write to file
+    with open('thermal/gas_velocity.inp', 'w') as f:
+        f.write("1\n")  # iformat = 1 (ASCII)
+        f.write(f"{nr*ntheta*nphi}\n")
+
+        for k in range(nphi):
+            for j in range(ntheta):
+                for i in range(nr):
+                    f.write(f"{vx[i,j,k]:.6e} {vy[i,j,k]:.6e} {vz[i,j,k]:.6e}\n")

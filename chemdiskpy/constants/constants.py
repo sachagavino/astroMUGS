@@ -13,11 +13,11 @@ k = 1.381e-23 #Boltzmann constant in J.K-1
 autocm = 1.49597e13 #convert AU to cm
 autom = 1.49597e11 #convert AU to m
 mu=2.4 #mean molecular of the gas equal to Solar metallicity, can be varied from 2 to 3 depending on the metallicity of the star.
-Ggram = 6.668e-8 #cm3.g-1.s-2 !!!!WARNING: in gram!!!!!
+Ggram = 6.6743e-8 #cgs
 e = 1.602e-19 #Coulomb
 
 ###ASTRONOMICAL CONSTANTS###
-M_sun = 1.9884e33 #g
+M_sun = 1.98847e33 #g
 L_sun = 3.9e33    # erg s^-1
 R_sun = 6.96e10   # cm
 T_sun = 5.78e3    # K

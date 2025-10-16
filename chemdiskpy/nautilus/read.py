@@ -23,7 +23,7 @@ def grid(radlist, nb_sizes, itime, species, chempath):
             
             abundance = np.loadtxt(f'{chempath}{radius}AU/ab/{species}.ab', comments='!')
             abundance = np.delete(abundance[itime], 0)
-            chem_numdens = nh / abundance
+            chem_numdens = nh*abundance
 
             # Store z, nH, and Tg arrays in a nested dictionary for the current radius
             grid_dict[radius] = {
@@ -52,7 +52,7 @@ def grid(radlist, nb_sizes, itime, species, chempath):
 
             abundance = np.loadtxt(f'{chempath}{radius}AU/ab/{species}.ab', comments='!')
             abundance = np.delete(abundance[itime], 0)
-            chem_numdens = nh / abundance
+            chem_numdens = nh*abundance
 
             # Store z, nH, and Tg arrays in a nested dictionary for the current radius
             grid_dict[radius] = {

@@ -302,20 +302,6 @@ def av_z(field_radmc3d, lam_mono, R_star, T_star, rchem, zchem, d, theta):
     # #-----------------------------------
 
 
-    # #--------------------------------
-    #import matplotlib.pyplot as plt
-    #from matplotlib.colors import LogNorm
-    #fig = plt.figure(figsize=(10, 8.))
-    #ax = fig.add_subplot(111)
-    #plt.xlabel(r'r', fontsize = 17)
-    #plt.ylabel(r'z', fontsize = 17, labelpad=-7.4)
-    #rr, zz = np.meshgrid(rchem, zchem)
-    #t = plt.pcolormesh(rr/autocm, zz/autocm, field_naut, cmap='gnuplot2', shading='gouraud', norm=LogNorm(vmin=np.min(field_naut), vmax=np.max(field_naut)), rasterized=True)
-    #clr = plt.colorbar(t)
-    #plt.show()
-    # #-----------------------------------
-
-
     #CREATE Av MAP
     for idx in range(len(rchem)):
         for idz in range(len(zchem[idx,:])):
@@ -333,21 +319,6 @@ def av_z(field_radmc3d, lam_mono, R_star, T_star, rchem, zchem, d, theta):
     avz_smooth[-2:, :] = avz[-2:, :]
     #avz_smooth = np.where(avz_smooth<1, avz_smooth*100, avz_smooth)  
 
-
-    # # #--------------------------------
-    # import matplotlib.pyplot as plt
-    # from matplotlib.colors import LogNorm
-    # fig = plt.figure(figsize=(10, 8.))
-    # ax = fig.add_subplot(111)
-    # plt.xlabel(r'r', fontsize = 17)
-    # plt.ylabel(r'z', fontsize = 17, labelpad=-7.4)
-    # zz, rr = np.meshgrid(zchem, rchem) #inverse r,z because dim is (len(r), len(z))
-    # #t = plt.pcolormesh(rr/autocm, zz/autocm, avz, cmap='gnuplot2', shading='gouraud', norm=LogNorm(vmin=1e0, vmax=1e2), rasterized=True)
-    # t = plt.contourf(rr/autocm, zz/autocm, avz, levels=[0.1,1,8,10,20,30,40,50,60, 70, 80], cmap='jet')
-    # clr = plt.colorbar(t)
-    # plt.show()
-    # # #-----------------------------------
-
     return avz_smooth
 
 
@@ -362,8 +333,10 @@ def to_spherical(chemmodel, nr, nt, dist, theta, struct='numberdens_species'):
             z_sph = abs(d*np.cos(thet))
             closest_r = min(enumerate(r_naut), key=lambda x: abs(x[1]-r_sph)) #find closest grid point
             closest_z = min(enumerate(chemmodel[closest_r[1]]['z']), key=lambda x: abs(x[1]-z_sph)) #find closest grid point
-            if d < rcut:
-                spherical_struct[id_d, id_thet] = 0.0
+            if z_sph > chemmodel[closest_r[1]]['z'][0] and d > rcut:
+                spherical_struct[id_d, id_thet] = np.min(chemmodel[closest_r[1]]['numberdens_species'])*1e-1
+            elif d < rcut:
+                spherical_struct[id_d, id_thet] = 1e-20
             else:
                 spherical_struct[id_d, id_thet] = chemmodel[closest_r[1]][struct][closest_z[0]]
 

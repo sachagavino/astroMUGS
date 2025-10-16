@@ -16,6 +16,10 @@ import parameters as p
 
 class Structure(Model):
 
+
+    def add_chemical_path(self, chemicalpath):
+        self.chempath = chemicalpath
+
     def add_star(self, mass=0.5, luminosity=1, temperature=4000., x=0., y=0., z=0.):
         self.grid.add_star(Star(mass=mass, luminosity=luminosity, \
                 temperature=temperature, x=x, y=y, z=z))
