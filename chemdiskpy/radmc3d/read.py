@@ -22,18 +22,18 @@ def grid(path, filename=None):
 
         grid = []
 
-        # x, y, z = [], [], []
+        x, y, z = [], [], []
 
-        # for ix in range(nx+1):
-        #     x.append(float(f.readline()))
-        # for iy in range(ny+1):
-        #     y.append(float(f.readline()))
-        # for iz in range(nz+1):
-        #     z.append(float(f.readline()))
+        for ix in range(nx+1):
+            x.append(float(f.readline()))
+        for iy in range(ny+1):
+            y.append(float(f.readline()))
+        for iz in range(nz+1):
+            z.append(float(f.readline()))
 
-        x = np.array(f.readline().replace("\n","").split(), dtype=float)
-        y = np.array(f.readline().replace("\n","").split(), dtype=float)
-        z = np.array(f.readline().replace("\n","").split(), dtype=float)
+        # x = np.array(f.readline().replace("\n","").split(), dtype=float)
+        # y = np.array(f.readline().replace("\n","").split(), dtype=float)
+        # z = np.array(f.readline().replace("\n","").split(), dtype=float)
 
     else:
         print('grid type must be regular for the moment.')

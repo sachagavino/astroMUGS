@@ -351,16 +351,21 @@ def av_z(field_radmc3d, lam_mono, R_star, T_star, rchem, zchem, d, theta):
     return avz_smooth
 
 
-def to_spherical(dens_naut, nr, nt, nphi, dist, theta, r_naut, zz_naut): 
-    dens_mol_sph = np.zeros((nr, nt))
-
+def to_spherical(chemmodel, nr, nt, dist, theta, struct='numberdens_species'): 
+    #self.grid.chemmodel[species], nx, ny, x, y
+    spherical_struct = np.zeros((nr, nt))
+    r_naut = np.array(list(chemmodel.keys()))
+    rcut = r_naut[0]
     for id_thet, thet in enumerate(theta):
         for id_d, d in enumerate(dist):
             r_sph = d*np.sin(thet)
             z_sph = abs(d*np.cos(thet))
             closest_r = min(enumerate(r_naut), key=lambda x: abs(x[1]-r_sph)) #find closest grid point
-            closest_z = min(enumerate(zz_naut[:,closest_r[0]]), key=lambda x: abs(x[1]-z_sph)) #find closest grid point
-            dens_mol_sph[id_d, id_thet] = dens_naut[closest_z[0], closest_r[0]]
+            closest_z = min(enumerate(chemmodel[closest_r[1]]['z']), key=lambda x: abs(x[1]-z_sph)) #find closest grid point
+            if d < rcut:
+                spherical_struct[id_d, id_thet] = 0.0
+            else:
+                spherical_struct[id_d, id_thet] = chemmodel[closest_r[1]][struct][closest_z[0]]
 
-    return dens_mol_sph
+    return spherical_struct
 

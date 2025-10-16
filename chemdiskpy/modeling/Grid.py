@@ -28,7 +28,7 @@ class Grid:
         self.accretionheating = []
         self.chemradii = []
         self.chemparam = []
-        self.chemgrid = {}
+        self.chemmodel = {}
 
     #-----
     # ADD/CREATE GRID STRUCTURES THAT EXIST OR THAT HAVE BEEN CREATED.
@@ -81,12 +81,11 @@ class Grid:
         self.chemradii.append(existingchemradii) 
     
     def add_existingchemparam(self,existingchemparam):
-        #args: chemgrid corresponds to an array with the radius and z points.
         self.chemparam.append(existingchemparam)    
 
-    def add_existingchemgrid(self,existingchemgrid, species):
+    def add_existingchemmodel(self,existingchemmodel, species):
         #args: chemgrid corresponds to an array with the radius and z points.
-        self.chemgrid[species] = existingchemgrid    
+        self.chemmodel[species] = existingchemmodel    
 
         
 
@@ -111,20 +110,23 @@ class Grid:
     def set_spherical_grid(self, rmin, rmax, nr, ntheta, nphi, log=True):
         self.coordsystem = "spherical"
         if log:
-            rad = np.logspace(np.log10(rmin), np.log10(rmax), nr, base=10)
+            r_edge = np.logspace(np.log10(rmin), np.log10(rmax), nr, base=10)
         else:
-            rad = np.linspace(rmin, rmax, nr)
+            r_edge = np.linspace(rmin, rmax, nr)
 
-        theta_angle = np.linspace(0.0, np.pi, ntheta)
-        phi_angle = np.linspace(0.0, 2*np.pi, nphi)
+        theta_edge = np.linspace(0.0, np.pi, ntheta)
+        phi_edge = np.linspace(0.0, 2*np.pi, nphi)
 
-        self.r = 0.5*(rad[0:rad.size-1] + rad[1:rad.size])
-        self.theta = 0.5*(theta_angle[0:theta_angle.size-1] + theta_angle[1:theta_angle.size])
-        self.phi = 0.5*(phi_angle[0:phi_angle.size-1] + phi_angle[1:phi_angle.size])
+        self.r = 0.5*(r_edge[0:r_edge.size-1] + r_edge[1:r_edge.size])
+        self.theta = 0.5*(theta_edge[0:theta_edge.size-1] + theta_edge[1:theta_edge.size])
+        self.phi = 0.5*(phi_edge[0:phi_edge.size-1] + phi_edge[1:phi_edge.size])
 
-        self.rad = rad
-        self.theta_angle = theta_angle
-        self.phi_angle = phi_angle
+        self.nr = nr
+        self.ntheta = ntheta
+        self.nphi = nphi
+        self.r_edge = r_edge
+        self.theta_edge = theta_edge
+        self.phi_edge = phi_edge
 
     def set_chemdisk_grid(self, r, max_H=4, nz_chem=64):
         """

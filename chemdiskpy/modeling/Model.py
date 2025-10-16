@@ -17,15 +17,9 @@ class Model:
         self.grid = Grid()
         self.nautilus = nautilus
 
-    def continuum_radiative(self, nphot=1e4, run=True, write=True, write_dens=True, \
-                                           write_grid=True, \
-                                           write_opac=True, \
-                                           write_control=True, \
-                                           write_star=True, \
-                                           write_wave=True, \
-                                           write_mcmono=True, \
-                                           write_ext=True, \
-                                           **keywords):
+    def run_continuum(self, nphot=1e4, \
+                                  write_control=False, \
+                                  **keywords):
         """ 
         Notes:
         run MC dust radiative transfer, open the resulting dust temperature as an array and computes the surface-area weigthed temperature. If run == False, user assumes the RADMC3D output files already exist.
@@ -35,26 +29,14 @@ class Model:
         thermpath='thermal/' 
 
         # WRITE THERMAL FILES
-        self.write_radmc3d(nphot_therm=nphot, \
-                           write=write,\
-                           write_dens=write_dens, \
-                           write_grid=write_grid, \
-                           write_opac=write_opac, \
-                           write_control=write_control, \
-                           write_star=write_star, \
-                           write_wave=write_wave, \
-                           write_mcmono=write_mcmono, \
-                           write_ext=write_ext, \
-                           **keywords)
+        if write_control == True:
+            self.write_continuum(nphot_therm=nphot, \
+                            control=True, \
+                            **keywords)
 
-        if write_dens == False or write_grid == False or write_control == False or write_opac == False or write_star == False or write_wave == False:
-            print('WARNING: because write_dens and others == False, the code assumes the user already created the files or will create them later from chemistry model. Will continue... but errors can be raised.\n')
+        self.run_thermal_radmc3d(nphot=nphot, **keywords)
 
-        if run == True:
-            self.run_thermal_radmc3d(nphot=nphot, **keywords)
 
-        else:
-            print("Dust thermal simulation was not run because the user set 'run=False'. This is fine. Will continue.")
 
 
         # THIS SECTION READS THE THERMAL FILES IF THE FILES EXIST.
@@ -69,10 +51,9 @@ class Model:
 
             # READ THERMAL FILES
             nx, ny, nz, x, y, z  = radmc3d.read.grid(thermpath)
-            self.grid.set_spherical_grid(x, y, z) #return self.grid.r, self.grid.theta. Necessary in case the user does not create themeselves the radmc3d files.
+            self.grid.set_spherical_grid(x[0], x[-1], nx+1, ny+1, nz+1) #return self.grid.r, self.grid.theta. Necessary in case the user does not create themeselves the radmc3d files.
             dust_density = radmc3d.read.dust_density(thermpath) # Gives a list of one numpy array. Will be updated when multiple structures
             nbspecies = int(len(dust_density[0])/(nx*ny*nz))
-
             dust_density = np.reshape(dust_density[0], (nbspecies, nz, ny, nx))
             dust_density[dust_density<=1e-100] = 1e-100 # get a minimum dust density in order to avoid absurd values for chemistry.
 
@@ -81,17 +62,20 @@ class Model:
                 self.grid.temperature = radmc3d.read.dust_temperature(thermpath)
                 if len(self.grid.temperature) > 0:
                     self.grid.temperature[0] = np.reshape(self.grid.temperature[0], (nbspecies, nz, ny, nx)) 
-
+        
                     if nbspecies > 1:
+                        
                         a = []
                         dustmass = []
-                
+                        
                         for istruc in range(0, len(self.grid.dust)): # create a loop in order to gather all grain sizes into one single array that will be used to compute the area-weighted temperature Ta.
+
                             dustmodel = self.grid.dust[istruc] 
                             #dustmass = dustmodel.grainmass() # gram
                             sizes = dustmodel.sizes()
                             #a = sizes[-1]*1e-4 # cm
                             a.append(sizes[-1]*1e-4) # cm
+                            
                             dustmass.append(dustmodel.grainmass()) # gram
                         a = np.hstack(a) # in order to get a numpy list of all sizes no matter how many structures there are.
                         dustmass = np.hstack(dustmass)
@@ -121,9 +105,79 @@ class Model:
         #---- END OF READ SECTION
 
 
+    def run_line(self, make_image=True, \
+                       write_control=False, \
+                       lines_format='leiden', \
+                       path='chemistry/', #relative or absolute path\
+                       incl=90, \
+                       npix=800, \
+                       iline=None, \
+                       lambda_micron=None, \
+                       widthkms=10, \
+                       linenlam=100, \
+                       itime=59, \
+                       species='CO', \
+                       **keywords):
+        thermpath='thermal/'
+
+        if make_image == True:
+            self.run_image_radmc3d(incl=incl, npix=npix, iline=iline,  lambda_micron=lambda_micron, **keywords)
+
+
+
+
+    def convert_nautilus2radmc(self, species='CO', dust_density=False, dust_temperature=False, numberdens=False):
+        """
+        -Convert the chemistry grid into radmc3d files. It needs a chemistry model to be run. 
+        -The conversion from nautilus to radmc3f files can be done for dust_density.inp, dust_temperature.inp, and numberdens_XX.inp. The user can choice to create all or 1 or 2 files with the flags.
+        -The chemistry model has to added to the object using add_chemmodel() function. 
+        -note that the conversion to radmc3d REQUIRES the presence of amr_grid.inp file first. Indeed, chemistry models usually have a lower resolution than that for radiative transfer and it is therefore better to define the chosen RT grid. The code will do the rest (interpolation, etc.). 
+
+
+        Args:
+            chempath (str): Relative or absolute path to the chemistry model directory.
+            itime (int): Index of the time output to use from the chemistry model. Not yet coded.
+            species (str) or list of str: Chemical species of interest (e.g., 'CO', 'H2O') for the creation of numberdens_XX.inp. 
+            reader (object, optional): A reader object or module responsible for reading chemistry data. 
+                                    Defaults to self.nautilus.read.
+        Raises:
+
+        """
+        thermpath='thermal/'
+
+        if os.path.isfile(thermpath + 'amr_grid.inp'):
+            nx, ny, nz, x, y, z  = radmc3d.read.grid(thermpath) # read grid. the amr_grid.inp shows the border of the cells so we convert them.
+            self.grid.set_spherical_grid(x[0]/autocm, x[-1]/autocm, nx+1, ny+1, nz+1, log=True)
+            x, y, z = self.grid.r, self.grid.theta, self.grid.phi
+            y[-1] = np.pi  # to avoid numerical issues.
+        elif hasattr(self.grid, 'r_edge') and self.grid.r_edge is not None:
+            nx, ny, nz, x, y, z = self.grid.nr, self.grid.ntheta, self.grid.nphi, self.grid.r, self.grid.theta, self.grid.phi
+            nx = nx-1
+            ny = ny-1
+            nz = nz-1
+        else:
+            print(f"Error: amr_grid not found. Make sure there is one (example: create one using grid.set_spherical_grid(rin, rout, nr, ntheta, nphi, log=True))")
+            sys.exit(1)  # Exit the program with a non-zero status to indicate an error
+
+        if numberdens==True:
+            # r_naut, zz_naut, dens_mol_nautilus = nautilus.read.abundance(path=path, itime=itime, species=species) #read abundances of chosen species from Nautilus output files.
+            #numberdens_sph = nautilus.coupling.to_spherical(dens_mol_nautilus, nx, ny, nz, x, y, r_naut, zz_naut) #convert abundances into spherical grid.
+            numberdens_sph = nautilus.coupling.to_spherical(self.grid.chemmodel[species], nx, ny, x, y, struct='numberdens_species') #convert abundances into spherical grid.
+            radmc3d.write.numberdens_mol(numberdens_sph, species=species, gridstyle="regular") #write numberdens_mol.inp file for RADMC-3D.
+
+        if dust_density==True:
+            print('create dust_density.inp')
+
+        if dust_temperature == True:
+            print('create dust_temperature.inp')
+
+
+                
+
+
     def localfield(self, nphot_mono=1e6, write_mcmono=False, run=True, **keywords):
 
-        self.write_radmc3d(write=True,\
+        self.write_continuum(write=True,\
                            write_dens=False, \
                            write_grid=False, \
                            write_opac=False, \
@@ -156,73 +210,98 @@ class Model:
         radmc3d.run.image(npix=npix, lambda_micron=lambda_micron, iline=iline, incl=incl, verbose=verbose, timelimit=7200)
 
 
-    def write_radmc3d(self, write, write_dens, write_grid, write_opac, write_control, write_star, write_wave, write_mcmono, write_ext, **keywords):
+    def write_continuum(self, dens=False, grid=False, opac=False, control=False, stars=False, wave=False, mcmono=False, ext=False, **keywords):
         #os.system("rm thermal/*.inp")
 
-        if write==True:
-            print('\nWRITING RADMC3D INPUT FILES:')
+
+        if not os.path.exists('thermal'):
+            os.makedirs('thermal')
+
+        if control==True:
+            print('\nWriting radmc3d.inp:')
+            print('----------------------------')
+            radmc3d.write.control(**keywords)
+
+        if stars==True:
+            print('\nWriting stars.inp:')
+            print('----------------------------')
+            mstar = []
+            rstar = []
+            xstar = []
+            ystar = []
+            zstar = []
+            tstar = []
+            for i in range(len(self.grid.stars)):
+                mstar.append(self.grid.stars[i].mass*M_sun)
+                rstar.append(self.grid.stars[i].radius*R_sun)
+                xstar.append(self.grid.stars[i].x*autocm)
+                ystar.append(self.grid.stars[i].y*autocm)
+                zstar.append(self.grid.stars[i].z*autocm)
+                tstar.append(self.grid.stars[i].temperature)
+
+            radmc3d.write.stars(rstar, mstar, self.grid.lam, xstar, ystar, zstar, \
+                    tstar=tstar)
+
+        if wave==True:
+            print('\nWriting wavelength_micron.inp:')
+            print('----------------------------')
+            radmc3d.write.wavelength_micron(self.grid.lam)
+
+        if mcmono==True:
+            print('\nWriting mcmono_wavelength_micron.inp:')
+            print('----------------------------')
+            radmc3d.write.mcmono_wavelength_micron(self.grid.monolam)
+
+        if ext==True:
+            if len(self.grid.isrf) != 0:
+                radmc3d.write.external_rad(self.grid.isrf[0])
+
+        if grid==True:
+            print('\nWriting amr_grid.inp:')
+            print('----------------------------')
+            if self.grid.coordsystem == 'spherical':
+                radmc3d.write.amr_grid(self.grid.r_edge*autocm, self.grid.theta_edge, self.grid.phi_edge, gridstyle="regular", coordsystem=self.grid.coordsystem)
+
+        if dens==True:
+            print('\nWriting dust_density.inp:')
+            print('----------------------------')
+            radmc3d.write.dust_density(self.grid.dustdensity, gridstyle="regular")
+
+        if opac==True:
+            print('\nWriting dustopac.inp:')
+            print('----------------------------')
+            dustopac = []
+            filelist = glob.glob('thermal/dustkap*')
+            for files in sorted(filelist):
+                dustopac.append(files)
+            radmc3d.write.dustopac(dustopac)
+            
+        if len(self.grid.accretionheating) > 0:
+            radmc3d.write.accretion_heating(self.grid.w1*autocm, self.grid.w2, self.grid.w3, self.grid.accretionheating[0], gridstyle="regular")
+
+        if dens == False and grid == False and control == False and opac == False and stars == False and wave == False: 
+            print('\nWARNING: no RADMC3D file are created.\n')
             print('----------------------------\n')
-
-            if not os.path.exists('thermal'):
-                os.makedirs('thermal')
-
-            if write_control==True:
-                radmc3d.write.control(**keywords)
-
-            if write_star==True:
-                mstar = []
-                rstar = []
-                xstar = []
-                ystar = []
-                zstar = []
-                tstar = []
-                for i in range(len(self.grid.stars)):
-                    mstar.append(self.grid.stars[i].mass*M_sun)
-                    rstar.append(self.grid.stars[i].radius*R_sun)
-                    xstar.append(self.grid.stars[i].x*autocm)
-                    ystar.append(self.grid.stars[i].y*autocm)
-                    zstar.append(self.grid.stars[i].z*autocm)
-                    tstar.append(self.grid.stars[i].temperature)
-
-                radmc3d.write.stars(rstar, mstar, self.grid.lam, xstar, ystar, zstar, \
-                        tstar=tstar)
-
-            if write_wave==True:
-                radmc3d.write.wavelength_micron(self.grid.lam)
-            if write_mcmono==True:
-                radmc3d.write.mcmono_wavelength_micron(self.grid.monolam)
-
-            if write_ext==True:
-                if len(self.grid.isrf) != 0:
-                    radmc3d.write.external_rad(self.grid.isrf[0])
-
-            if write_grid==True:
-                if self.grid.coordsystem == 'spherical':
-                    radmc3d.write.amr_grid(self.grid.w1*autocm, self.grid.w2, self.grid.w3, gridstyle="regular", coordsystem=self.grid.coordsystem)
-
-            if write_dens==True:
-                radmc3d.write.dust_density(self.grid.dustdensity, gridstyle="regular")
-
-            if write_opac==True:
-                dustopac = []
-                filelist = glob.glob('thermal/dustkap*')
-                for files in sorted(filelist):
-                    dustopac.append(files)
-                radmc3d.write.dustopac(dustopac)
                 
-            if len(self.grid.accretionheating) > 0:
-                radmc3d.write.accretion_heating(self.grid.w1*autocm, self.grid.w2, self.grid.w3, self.grid.accretionheating[0], gridstyle="regular")
+    def write_line(self, control=False, numberdens=False, line=False, gasvelocity=False, gastemp=False, microturb=False, line_format='leiden', species='CO' **keywords):
+        #os.system("rm thermal/*.inp")
 
-        else:
-            print('\nNO RADMC3D FILE WILL BE WRITTEN, ONLY READ FROM ALREADY EXISTING FILES.')
-            print('----------------------------\n')
-            try:
-                os.makedirs('thermal', exist_ok=True) 
-            except IOError:
-                print('\nThere is no folder called thermal/ where the RADMC3D files should be located. Please, create a folder called thermal/.\n')
-                sys.exit(1)
-                
 
+        if not os.path.exists('thermal'):
+            os.makedirs('thermal')
+
+        if control==True:
+            print('\nWriting radmc3d.inp:')
+            print('----------------------------')
+            radmc3d.write.control(**keywords)
+
+        if line==True:
+            print('\nWriting line.inp:')
+            print('----------------------------')
+            radmc3d.write.lines(species=species, format=line_format)
+            
+        if gasvelocity == True:
+            radmc3d.write.gas_velocity(self.grid.gasvelocity, gridstyle="regular")
 
 
     # ----WRITE NAUTILUS INPUT FILES----
@@ -455,38 +534,3 @@ class Model:
             #     nautilus.write.activ_energies(path)
             # if surfaces == True:
             #     nautilus.write.surfaces(path)
-
-
-    def line_radiative(self, make_image=True, \
-                             write_numberdens=True, \
-                             write_lines=True, \
-                             lines_format='leiden', \
-                             path='chemistry/', #relative or absolute path\
-                             incl=90, \
-                             npix=800, \
-                             iline=None, \
-                             lambda_micron=None, \
-                             widthkms=10, \
-                             linenlam=100, \
-                             itime=59, \
-                             species='CO', \
-                             **keywords):
-        thermpath='thermal/'
-
-
-        if write_numberdens==True:
-            #--------------------
-            # READ THERMAL FILES 
-            #--------------------
-            nx, ny, nz, x, y, z  = radmc3d.read.grid(thermpath) # read grid
-            self.grid.set_spherical_grid(x, y, z) #return self.grid.r (cm), self.grid.theta.
-
-            r_naut, zz_naut, dens_mol_nautilus = nautilus.read.abundance(path=path, itime=itime, species=species) #read abundances of chosen species from Nautilus output files.
-            numberdens_sph = nautilus.coupling.to_spherical(dens_mol_nautilus, nx, ny, nz, self.grid.r/autocm, self.grid.theta, r_naut, zz_naut) #convert abundances into spherical grid.
-            radmc3d.write.numberdens_mol(numberdens_sph, species=species, gridstyle="regular") #write numberdens_mol.inp file for RADMC-3D.
-
-        if write_lines == True:
-            radmc3d.write.lines(species=species, format=lines_format)
-
-        if make_image == True:
-            self.run_image_radmc3d(incl=incl, npix=npix, iline=iline,  lambda_micron=lambda_micron, **keywords)

@@ -363,3 +363,10 @@ def lines(species='CO', format='leiden'):
     f.write("1\n")
     f.write("{} {} 0 0 0".format(species,format))
     f.close()
+
+
+def gas_velocity():
+    '''
+    Desc: write gas_velocity.inp
+    Args: species, format
+    '''    
