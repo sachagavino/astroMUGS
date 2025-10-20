@@ -375,7 +375,7 @@ def gas_velocity(star_mass, r, theta, phi, object="disk"):
     '''    
 
     nr, ntheta, nphi = len(r), len(theta), len(phi)
-
+    print(nr, ntheta, nphi)
     # Create 3D grids
     rr, tt, pp = np.meshgrid(r*autocm, theta, phi, indexing='ij')
 
@@ -384,8 +384,8 @@ def gas_velocity(star_mass, r, theta, phi, object="disk"):
 
     # Convert to Cartesian
     vx = -vphi * np.sin(pp)
-    vy =  vphi * np.cos(pp)
-    vz = np.zeros_like(vx)
+    vy =  np.zeros_like(vx)
+    vz = vphi * np.cos(pp)
 
     # Write to file
     with open('thermal/gas_velocity.inp', 'w') as f:

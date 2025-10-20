@@ -301,6 +301,8 @@ class Model:
             radmc3d.write.lines(species=species, format=line_format)
             
         if gasvelocity == True:
+            print('\nWriting gas_velocity.inp:')
+            print('----------------------------')
             radmc3d.write.gas_velocity(star_mass=star_mass, r=self.grid.r, theta=self.grid.theta, phi=self.grid.phi, object="disk")   
 
 
