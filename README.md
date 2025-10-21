@@ -14,7 +14,7 @@ The code can convert any relevant RADMC3D input/output files to a NAUTILUS frien
 
 ## Documentation
 
-        A detailed documentation can be found here][1]. 
+        A detailed documentation can be found [here][1]. 
 
 ## Quick start
 
