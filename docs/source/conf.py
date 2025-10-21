@@ -53,8 +53,8 @@ latex_elements = {
 
 
 # -- Options for HTML output
-
-html_theme = "furo"
+html_theme = "pydata_sphinx_theme"
+#html_theme = "furo"
 #html_theme_path = ["_themes", ]
 
 # Add any paths that contain custom static files (such as style sheets) here,
