@@ -12,7 +12,12 @@ The code can convert any relevant RADMC3D input/output files to a NAUTILUS frien
         pip install -i https://test.pypi.org/simple/ chemdiskpy
 
 
+## Documentation
+
+        A detailed documentation can be found here][1]. 
+
 ## Quick start
+
 
 ### Set up a directory 
 1. Create a working folder where you want to create a model and go to this folder.
@@ -175,3 +180,5 @@ plot.vertical_temp(r=100)
 ### RUN NAUTILUS DISK MODEL
 - Next step is to run as you would usually do the nautilus model in **chemistry/**.
 - This will be added in a future update.
+
+[1]: https://chemdiskpy.readthedocs.io/en/latest
