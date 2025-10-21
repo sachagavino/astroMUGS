@@ -1,7 +1,7 @@
 Installation of chemdiskpy
 ************
 
-How to obtain radproces
+How to obtain chemdiskpy
 =================
 
 chemdiskpy can be obtained by cloning its repository (soon using pip). This is also the best way to keep up-to-date.
