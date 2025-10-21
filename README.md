@@ -13,8 +13,9 @@ The code can convert any relevant RADMC3D input/output files to a NAUTILUS frien
 
 
 ## Documentation
+A detailed documentation can be found [here][1]. 
 
-        A detailed documentation can be found [here][1]. 
+[1]: https://chemdiskpy.readthedocs.io/en/latest
 
 ## Quick start
 
@@ -181,4 +182,3 @@ plot.vertical_temp(r=100)
 - Next step is to run as you would usually do the nautilus model in **chemistry/**.
 - This will be added in a future update.
 
-[1]: https://chemdiskpy.readthedocs.io/en/latest
