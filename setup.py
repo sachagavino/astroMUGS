@@ -5,9 +5,9 @@ with open("README.md", "r", encoding="utf-8") as fh:
 
 setuptools.setup(
     name="chemdiskpy",
-    version="1.0.1",
+    version="1.0.3",
     author="Sacha Gavino",
-    author_email="sacha.gavino@nbi.ku.dk",
+    author_email="sacha.gavino@unibo.it",
     description="Thermal and chemical modeling of multiple grain-sized protoplanetary disks",
     long_description=long_description,
     long_description_content_type="text/markdown",
@@ -28,5 +28,5 @@ setuptools.setup(
         "chemdiskpy.dust": 'chemdiskpy/dust'}, \
         package_data={\
         'chemdiskpy.nautilus': ['network/*.in']}, \
-    python_requires=">=3.6",
+    python_requires=">=3.10",
 )
