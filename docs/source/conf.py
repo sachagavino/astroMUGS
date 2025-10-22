@@ -98,7 +98,6 @@ html_theme_options = {
         "text": "astroMUGS",
         "image_dark": "_static/logo-dark.ng",
     },
-    "use_edit_page_button": True,
     "show_toc_level": 1,
     # [left, content, right] For testing that the navbar items align properly
     "navbar_align": "left",
