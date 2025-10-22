@@ -87,8 +87,8 @@ html_theme = "pydata_sphinx_theme"
 #html_theme = "furo"
 #html_theme_path = ["_themes", ]
 
-html_logo = "_static/logo-red.png"
-html_favicon = "_static/logo-red.png"
+html_logo = "_static/logo-dark.png"
+html_favicon = "_static/logo-dark.png"
 html_sourcelink_suffix = ""
 html_last_updated_fmt = ""  # to reveal the build date in the pages meta
 
@@ -128,9 +128,8 @@ html_theme_options = {
     "logo": {
         "text": "astroMUGS",
         "image_light": "_static/logo-light.png",
-        "image_dark": "_static/logo-red.png",
+        "image_dark": "_static/logo-dark.png",
     },
-    "logo_link": {"image_dark": "_static/logo-red.png"},
     "show_toc_level": 1,
     # [left, content, right] For testing that the navbar items align properly
     "navbar_align": "left",
