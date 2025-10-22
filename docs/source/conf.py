@@ -39,8 +39,8 @@ extensions = [
     "sphinx.ext.graphviz",
     #"autoapi.extension",
     # custom extentions
-    "_extension.gallery_directive",
-    "_extension.component_directive",
+    #"_extension.gallery_directive",
+    #"_extension.component_directive",
     # For extension examples and demos
     #"myst_parser",
     #"ablog",
