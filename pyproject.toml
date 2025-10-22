@@ -10,7 +10,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "chemdiskpy"
 authors = [{name = "Sacha Gavino", email = "sacha.gavino@unibo.it"}]
-dynamic = ["version", "description", "readme"]
+dynamic = ["version", "description", "readme", "classifiers"]
 
 
 [tool.setuptools.dynamic]
