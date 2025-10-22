@@ -10,7 +10,7 @@
 # add these directories to sys.path here. If the directory is relative to the
 # documentation root, use os.path.abspath to make it absolute, like shown here.
 #
-# import os
+import os
 # import sys
 import datetime
 # sys.path.insert(0, os.path.abspath('.'))
@@ -87,7 +87,7 @@ html_theme = "pydata_sphinx_theme"
 #html_theme = "furo"
 #html_theme_path = ["_themes", ]
 
-html_logo = "_static/logo-dark.png"
+html_logo = "_static/logo.png"
 
 
 # Define the version we use for matching in the version switcher.
@@ -114,7 +114,7 @@ html_theme_options = {
 
     "logo": {
         "text": "astroMUGS",
-        "image_dark": "_static/logo-dark.ng",
+        "image_dark": "_static/logo-dark.png",
     },
     "show_toc_level": 1,
     # [left, content, right] For testing that the navbar items align properly
