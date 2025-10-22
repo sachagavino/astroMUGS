@@ -44,12 +44,12 @@ extensions = [
     # For extension examples and demos
     #"myst_parser",
     #"ablog",
-    "jupyter_sphinx",
+    #"jupyter_sphinx",
     #"sphinxcontrib.youtube",
     #"nbsphinx",
     "numpydoc",
     #"sphinx_togglebutton",
-    "jupyterlite_sphinx",
+    #"jupyterlite_sphinx",
     "sphinx_favicon",
 ]
 
