@@ -37,13 +37,13 @@ extensions = [
     "sphinx.ext.viewcode",
     "sphinx.ext.intersphinx",
     "sphinx.ext.graphviz",
-    "autoapi.extension",
+    #"autoapi.extension",
     # custom extentions
     "_extension.gallery_directive",
     "_extension.component_directive",
     # For extension examples and demos
-    "myst_parser",
-    "ablog",
+    #"myst_parser",
+    #"ablog",
     "jupyter_sphinx",
     #"sphinxcontrib.youtube",
     #"nbsphinx",
