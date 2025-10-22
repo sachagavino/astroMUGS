@@ -4,8 +4,12 @@ Installation of chemdiskpy
 How to obtain chemdiskpy
 =================
 
-chemdiskpy can be obtained by cloning its repository (soon using pip). This is also the best way to keep up-to-date.
-From a terminal, go to a directory where you want to install the code, and type:: 
+chemdiskpy can be obtained either by cloning its Github repository or via pip. We recommand using pip as the process is more straightforward.
+From a terminal, type::
+    
+      pip install -i https://test.pypi.org/simple/ chemdiskpy
+
+This will install the latest version. You can use chemdiskpy from any directory. To install the package from Github, go to a directory where you want to install the code, and type:: 
 
 
     git clone https://github.com/sachagavino/chemdiskpy.git
