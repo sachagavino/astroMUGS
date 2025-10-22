@@ -1,5 +1,6 @@
 [build-system]
 requires = [
+    "python > 3.10",
     "setuptools>=61",
     "wheel",
     "numpy"
