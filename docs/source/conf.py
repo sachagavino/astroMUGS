@@ -87,7 +87,7 @@ html_theme = "pydata_sphinx_theme"
 #html_theme = "furo"
 #html_theme_path = ["_themes", ]
 
-html_logo = "_static/logo.png"
+html_logo = "_static/logo-dark.png"
 
 
 # Define the version we use for matching in the version switcher.
