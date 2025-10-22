@@ -116,11 +116,18 @@ elif version_match == "stable":
     version_match = f"v{release}"
 
 
+html_context = {
+   # ...
+   "default_mode": "dark"
+}
+
+
 html_theme_options = {
     "header_links_before_dropdown": 4,
 
     "logo": {
         "text": "astroMUGS",
+        "image_light": "_static/logo-light.png",
         "image_dark": "_static/logo-dark.png",
     },
     "logo_link": {"image_dark": "_static/logo-dark.png"},
