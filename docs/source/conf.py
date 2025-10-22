@@ -128,9 +128,9 @@ html_theme_options = {
     "logo": {
         "text": "astroMUGS",
         "image_light": "_static/logo-light.png",
-        "image_dark": "_static/logo-dark.png",
+        "image_dark": "_static/logo-red.png",
     },
-    "logo_link": {"image_dark": "_static/logo-dark.png"},
+    "logo_link": {"image_dark": "_static/logo-red.png"},
     "show_toc_level": 1,
     # [left, content, right] For testing that the navbar items align properly
     "navbar_align": "left",
