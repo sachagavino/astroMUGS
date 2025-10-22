@@ -87,8 +87,8 @@ html_theme = "pydata_sphinx_theme"
 #html_theme = "furo"
 #html_theme_path = ["_themes", ]
 
-html_logo = "_static/logo-dark.png"
-html_favicon = "_static/logo-dark.png"
+html_logo = "_static/logo-red.png"
+html_favicon = "_static/logo-red.png"
 html_sourcelink_suffix = ""
 html_last_updated_fmt = ""  # to reveal the build date in the pages meta
 
