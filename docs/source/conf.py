@@ -14,7 +14,7 @@ import os
 # import sys
 import datetime
 # sys.path.insert(0, os.path.abspath('.'))
-
+from sphinx.application import Sphinx
 
 # Configuration file for the Sphinx documentation builder.
 
@@ -30,13 +30,13 @@ authors = 'Sacha Gavino'
 # -- General configuration
 
 extensions = [
-    #"sphinx.ext.napoleon",
-    #"sphinx.ext.autodoc",
-    #"sphinx.ext.autosummary",
-    #"sphinx.ext.todo",
-    #"sphinx.ext.viewcode",
-    #"sphinx.ext.intersphinx",
-    #"sphinx.ext.graphviz",
+    "sphinx.ext.napoleon",
+    "sphinx.ext.autodoc",
+    "sphinx.ext.autosummary",
+    "sphinx.ext.todo",
+    "sphinx.ext.viewcode",
+    "sphinx.ext.intersphinx",
+    "sphinx.ext.graphviz",
     #"autoapi.extension",
     # custom extentions
     #"_extension.gallery_directive",
@@ -87,7 +87,14 @@ html_theme = "pydata_sphinx_theme"
 #html_theme = "furo"
 #html_theme_path = ["_themes", ]
 
-html_logo = "_static/logo-dark.svg"
+html_logo = "_static/logo.png"
+html_favicon = "_static/logo.png"
+html_sourcelink_suffix = ""
+html_last_updated_fmt = ""  # to reveal the build date in the pages meta
+
+# Define the json_url for our version switcher.
+json_url = "https://chemdiskpy.readthedocs.io/en/latest/_static/switcher.json"
+
 
 
 # Define the version we use for matching in the version switcher.
@@ -133,6 +140,10 @@ html_theme_options = {
     "secondary_sidebar_items": {
         "**/*": ["page-toc", "edit-this-page", "sourcelink"],
         "examples/no-sidebar": [],
+    },
+    "switcher": {
+        "json_url": json_url,
+        "version_match": version_match,
     },
     # "back_to_top_button": False,
     "search_as_you_type": True,
