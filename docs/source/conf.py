@@ -87,7 +87,7 @@ html_theme = "pydata_sphinx_theme"
 #html_theme = "furo"
 #html_theme_path = ["_themes", ]
 
-html_logo = "_static/logo-dark.png"
+html_logo = "_static/logo-dark.svg"
 
 
 # Define the version we use for matching in the version switcher.
@@ -114,7 +114,7 @@ html_theme_options = {
 
     "logo": {
         "text": "astroMUGS",
-        "image_dark": "_static/logo-dark.png",
+        "image_dark": "_static/logo-dark.svg",
     },
     "show_toc_level": 1,
     # [left, content, right] For testing that the navbar items align properly
