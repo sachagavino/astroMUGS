@@ -37,7 +37,6 @@ extensions = [
     "sphinx.ext.viewcode",
     "sphinx.ext.intersphinx",
     "sphinx.ext.graphviz",
-    "sphinx_copybutton",
     "autoapi.extension",
     # custom extentions
     "_extension.gallery_directive",
