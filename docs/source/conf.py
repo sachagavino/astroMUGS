@@ -42,7 +42,7 @@ extensions = [
     #"_extension.gallery_directive",
     #"_extension.component_directive",
     # For extension examples and demos
-    #"myst_parser",
+    "myst_parser",
     #"ablog",
     #"jupyter_sphinx",
     #"sphinxcontrib.youtube",
@@ -53,6 +53,8 @@ extensions = [
     #"sphinx_favicon",
 ]
 
+
+source_suffix = ['.rst', '.md']
 
 jupyterlite_config = "jupyterlite_config.json"
 
