@@ -3,7 +3,7 @@ Chemdiskpy
 
 
 
-Contents
+# Quickstart guide 
 --------
 
 .. toctree::
@@ -13,3 +13,19 @@ Contents
    basicuse
    inputoutput
    convert
+
+
+User interface
+--------
+
+.. toctree::
+   introduction
+   functions
+
+
+Examples
+--------
+
+.. toctree::
+   introduction
+   a disk model from scratch

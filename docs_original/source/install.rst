@@ -31,7 +31,7 @@ To make sure you always use the latest version, you can type::
 Requirements and environment
 =================
 
-Because chemdiskpy (for now) uses specific library versions, it is strongly recommended to use a dedicated virtual environment to avoid conflicts with other packages. You can use ``conda`` to create a virtual environment. 
+It is usually recommended to use a dedicated virtual environment to avoid conflicts with other packages, although chemdiskpy requirements are widely used libraries so it should be safe. You can use ``conda`` to create a virtual environment. 
 The easiest way to do this is to use the provided ``environment.yml`` file. The name of the environment is ``chemdiskpy`` by default, but you can change it in the ``environment.yml`` file before creating the environment.
 From the terminal, type::
 
@@ -51,4 +51,5 @@ You can now activate the new environment with::
 Running the code
 =================
 
+In a python script, you can import 
 

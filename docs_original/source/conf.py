@@ -59,12 +59,7 @@ html_theme = "pydata_sphinx_theme"
 
 
 html_sidebars = {
-    "community/index": [
-        "sidebar-nav-bs",
-        "custom-template",
-    ],  # This ensures we test for custom sidebars
-    "examples/no-sidebar": [],  # Test what page looks like with no sidebar items
-    "examples/persistent-search-field": ["search-field"],
+    "**": ["sidebar-nav-bs", "sidebar-ethical-ads"]
 }
 
 # Add any paths that contain custom static files (such as style sheets) here,
