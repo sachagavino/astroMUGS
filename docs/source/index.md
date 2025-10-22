@@ -7,9 +7,9 @@ myst:
 html_theme.sidebar_secondary.remove: true
 ---
 
-# The PyData Sphinx Theme
+# The documentation of chemdiskpy
 
-A clean, Bootstrap-based Sphinx theme by and for [the PyData community](https://pydata.org).
+A modular, user-friendly pipeline to couple MHD, radiative transfer, and chemistry, in the context of multi-grain simulations.
 
 ```{gallery-grid}
 :grid-columns: 1 2 2 3
@@ -28,13 +28,13 @@ A clean, Bootstrap-based Sphinx theme by and for [the PyData community](https://
   content: "See [our gallery](examples/gallery.md) of projects that use this theme."
 ```
 
-```{seealso}
+<!-- ```{seealso}
 If you are looking for a Sphinx theme that puts all of its sub-pages in the sidebar, the [Sphinx Book Theme](https://sphinx-book-theme.readthedocs.io/) has a similar look and feel, and [Furo](https://pradyunsg.me/furo/quickstart/) is another excellent choice. You can also see the [Sphinx Themes Gallery](https://sphinx-themes.org) for more ideas.
-```
+``` -->
 
 ## Quickstart Guide
 
-A quickstart to install and use chemdiskpy.
+This is where all begins.
 
 ```{toctree}
 :maxdepth: 2
