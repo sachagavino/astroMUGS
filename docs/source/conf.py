@@ -18,7 +18,7 @@ import datetime
 
 # Configuration file for the Sphinx documentation builder.
 
-# -- Project information
+# -- Project information --------------------------------
 
 project = 'chemdiskpy'
 copyright = '{0}, {1}'.format(datetime.datetime.now().year, 'Sacha Gavino')
@@ -30,12 +30,36 @@ release = '1.0.0'
 # -- General configuration
 
 extensions = [
-    # 'sphinx.ext.duration',
-    # 'sphinx.ext.doctest',
-    # 'sphinx.ext.autodoc',
-    # 'sphinx.ext.autosummary',
-    # 'sphinx.ext.intersphinx',
+    "sphinx.ext.napoleon",
+    "sphinx.ext.autodoc",
+    "sphinx.ext.autosummary",
+    "sphinx.ext.todo",
+    "sphinx.ext.viewcode",
+    "sphinx.ext.intersphinx",
+    "sphinx.ext.graphviz",
+    "sphinxext.rediraffe",
+    "sphinx_design",
+    "sphinx_copybutton",
+    "autoapi.extension",
+    # custom extentions
+    "_extension.gallery_directive",
+    "_extension.component_directive",
+    # For extension examples and demos
+    "myst_parser",
+    "ablog",
+    "jupyter_sphinx",
+    "sphinxcontrib.youtube",
+    "nbsphinx",
+    "numpydoc",
+    "sphinx_togglebutton",
+    "jupyterlite_sphinx",
+    "sphinx_favicon",
 ]
+
+
+jupyterlite_config = "jupyterlite_config.json"
+
+
 
 intersphinx_mapping = {
     'python': ('https://docs.python.org/3/', None),
@@ -44,6 +68,13 @@ intersphinx_mapping = {
 intersphinx_disabled_domains = ['std']
 
 templates_path = ['_templates']
+
+
+exclude_patterns = ["_build", "Thumbs.db", ".DS_Store", "**.ipynb_checkpoints"]
+
+
+# specifying the natural language populates some key tags
+language = "en"
 
 # -- Options for LaTeX output 
 
@@ -65,6 +96,7 @@ html_sidebars = {
     ],  # This ensures we test for custom sidebars
     "examples/no-sidebar": [],  # Test what page looks like with no sidebar items
     "examples/persistent-search-field": ["search-field"],
+
 }
 
 # Add any paths that contain custom static files (such as style sheets) here,
