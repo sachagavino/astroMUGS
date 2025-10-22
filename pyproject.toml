@@ -1,7 +1,6 @@
 [build-system]
 requires = [
-    "python > 3.10",
-    "setuptools>=61",
+    "setuptools>=41",
     "wheel",
     "numpy"
 ]
@@ -11,7 +10,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "chemdiskpy"
 authors = [{name = "Sacha Gavino", email = "sacha.gavino@unibo.it"}]
-dynamic = ["version", "description", "readme", "classifiers"]
+dynamic = ["version", "description", "readme", "classifiers", "requires-python"]
 
 
 [tool.setuptools.dynamic]
