@@ -37,7 +37,6 @@ extensions = [
     "sphinx.ext.viewcode",
     "sphinx.ext.intersphinx",
     "sphinx.ext.graphviz",
-    "sphinx_design",
     "sphinx_copybutton",
     "autoapi.extension",
     # custom extentions
@@ -47,10 +46,10 @@ extensions = [
     "myst_parser",
     "ablog",
     "jupyter_sphinx",
-    "sphinxcontrib.youtube",
-    "nbsphinx",
+    #"sphinxcontrib.youtube",
+    #"nbsphinx",
     "numpydoc",
-    "sphinx_togglebutton",
+    #"sphinx_togglebutton",
     "jupyterlite_sphinx",
     "sphinx_favicon",
 ]
