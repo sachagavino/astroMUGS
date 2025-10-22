@@ -90,6 +90,43 @@ html_theme = "pydata_sphinx_theme"
 html_logo = "_static/logo.png"
 
 
+
+html_theme_options = {
+    "header_links_before_dropdown": 4,
+
+    "logo": {
+        "text": "astroMUGS",
+        "image_dark": "_static/logo-dark.ng",
+    },
+    "use_edit_page_button": True,
+    "show_toc_level": 1,
+    # [left, content, right] For testing that the navbar items align properly
+    "navbar_align": "left",
+    # "show_nav_level": 2,
+    "show_version_warning_banner": True,
+    "navbar_center": ["version-switcher", "navbar-nav"],
+    # "navbar_start": ["navbar-logo"],
+    # "navbar_end": ["theme-switcher", "navbar-icon-links"],
+    # "navbar_persistent": ["search-button"],
+    # "primary_sidebar_end": ["custom-template", "sidebar-ethical-ads"],
+    # "article_footer_items": ["test", "test"],
+    # "content_footer_items": ["test", "test"],
+    "footer_start": ["copyright"],
+    "footer_center": ["sphinx-version"],
+    "secondary_sidebar_items": {
+        "**/*": ["page-toc", "edit-this-page", "sourcelink"],
+        "examples/no-sidebar": [],
+    },
+    "switcher": {
+        "json_url": json_url,
+        "version_match": version_match,
+    },
+    # "back_to_top_button": False,
+    "search_as_you_type": True,
+}
+
+
+
 html_sidebars = {
     "community/index": [
         "sidebar-nav-bs",
