@@ -47,10 +47,10 @@ extensions = [
     #"jupyter_sphinx",
     #"sphinxcontrib.youtube",
     #"nbsphinx",
-    "numpydoc",
+    #"numpydoc",
     #"sphinx_togglebutton",
     #"jupyterlite_sphinx",
-    "sphinx_favicon",
+    #"sphinx_favicon",
 ]
 
 
