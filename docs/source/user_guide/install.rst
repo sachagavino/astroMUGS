@@ -1,10 +1,10 @@
-Installation of chemdiskpy
+Installation of astroMUGS
 ************
 
-How to obtain chemdiskpy
+How to obtain astroMUGS
 =================
 
-chemdiskpy can be obtained either by cloning its Github repository or via pip. We recommand using pip as the process is more straightforward.
+astroMUGS (new name of chemdiskpy) can be obtained either by cloning its Github repository or via pip. We recommand using pip as the process is more straightforward.
 From a terminal, type::
     
       pip install -i https://test.pypi.org/simple/ chemdiskpy

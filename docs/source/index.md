@@ -9,7 +9,7 @@ html_theme.sidebar_secondary.remove: true
 
 # The documentation of astroMUGS
 
-A modular and user-friendly pipeline to couple MHD, radiative transfer, and chemistry, MUlti-Grain Simulations (MUGS) for astrophysical objects.
+A modular and user-friendly pipeline to couple MHD, radiative transfer, and chemistry, MUlti-Grain Simulations (MUGS) for astrophysical objects. astroMUGS is a brand new updated version of the library chemdiskpy.
 
 ```{gallery-grid}
 :grid-columns: 1 2 2 3
