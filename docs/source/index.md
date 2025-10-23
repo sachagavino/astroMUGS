@@ -32,7 +32,7 @@ A modular and user-friendly pipeline to couple MHD, radiative transfer, and chem
 If you are looking for a Sphinx theme that puts all of its sub-pages in the sidebar, the [Sphinx Book Theme](https://sphinx-book-theme.readthedocs.io/) has a similar look and feel, and [Furo](https://pradyunsg.me/furo/quickstart/) is another excellent choice. You can also see the [Sphinx Themes Gallery](https://sphinx-themes.org) for more ideas.
 ``` -->
 
-## Quickstart Guide
+## User Guide
 
 This is where it all begins.
 
