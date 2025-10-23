@@ -17,7 +17,7 @@ Make sure that you have nmgc and radmc3d installed on your machine before starti
 
 ```{toctree}
 :caption: Get started
-
+introduction
 install
 ```
 
