@@ -6,7 +6,7 @@ Quickstart
 =================
 
 
-run chemdiskpy
+run astroMUGS
 ---------------------
 
 
