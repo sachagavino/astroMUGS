@@ -9,7 +9,7 @@ html_theme.sidebar_secondary.remove: true
 
 # The documentation of astroMUGS
 
-A modular, user-friendly pipeline to couple MHD, radiative transfer, and chemistry, multi-grain simulations (MUGS) for astrophysical objects.
+A modular and user-friendly pipeline to couple MHD, radiative transfer, and chemistry, MUlti-Grain Simulations (MUGS) for astrophysical objects.
 
 ```{gallery-grid}
 :grid-columns: 1 2 2 3
@@ -34,7 +34,7 @@ If you are looking for a Sphinx theme that puts all of its sub-pages in the side
 
 ## Quickstart Guide
 
-This is where all begins.
+This is where it all begins.
 
 ```{toctree}
 :maxdepth: 2
