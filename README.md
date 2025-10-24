@@ -1,4 +1,4 @@
-# chemdiskpy: Couple chemistry modeling with thermal modeling of protoplanetary disks with multiple grain sizes
+# astroMUGS: Couple chemistry modeling with thermal modeling of protoplanetary disks with multiple grain sizes
 
 
 This code performs dust continuum radiative transfer simulations of protoplanetary disks with RADMC3D and allows to use the resulting dust tempeature and local radiation field for gas-grain simulations (NAUTILUS).
@@ -9,10 +9,16 @@ The code can convert any relevant RADMC3D input/output files to a NAUTILUS frien
 
 - latest release from test [https://test.pypi.org/](https://test.pypi.org/):
 
-        pip install -i https://test.pypi.org/simple/ chemdiskpy
+        pip install -i https://test.pypi.org/simple/ astromugs
 
+
+## Documentation
+A detailed documentation can be found [here][1]. 
+
+[1]: https://astromugs.readthedocs.io/en/latest
 
 ## Quick start
+
 
 ### Set up a directory 
 1. Create a working folder where you want to create a model and go to this folder.
@@ -30,9 +36,9 @@ The code can convert any relevant RADMC3D input/output files to a NAUTILUS frien
 - Open any notebook or script in the working directory:
 
 ```
-import chemdiskpy.modeling as modeling
-import chemdiskpy.dust as dust
-import chemdiskpy.plotting.plot as plot
+import astromugs.modeling as modeling
+import astromugs.dust as dust
+import astromugs.plotting.plot as plot
 ```
 
 ### CREATE AN OBJECT:
@@ -175,3 +181,4 @@ plot.vertical_temp(r=100)
 ### RUN NAUTILUS DISK MODEL
 - Next step is to run as you would usually do the nautilus model in **chemistry/**.
 - This will be added in a future update.
+
