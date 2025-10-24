@@ -1,10 +1,10 @@
 <picture>
-  <source srcset="docs/source/_static/logo-dark.png" media="(prefers-color-scheme: dark)">
+  <source srcset="docs/source/_static/logo-dark-name.png" media="(prefers-color-scheme: dark)">
   <source srcset="docs/source/_static/logo-light.png" media="(prefers-color-scheme: light)">
-  <img src="docs/source/_static/logo-dark.png" alt="astroMUGS">
+  <img src="docs/source/_static/logo-dark-name.png" alt="astroMUGS">
 </picture>
 
-# astroMUGS: A modular and user-friendly pipeline to couple MHD, radiative transfer, and chemistry, for MUlti-Grain Simulations (MUGS), specifically dedicated to young stellar objects. astroMUGS is the new version of the library chemdiskpy.
+# A modular and user-friendly pipeline to couple MHD, radiative transfer, and chemistry, for MUlti-Grain Simulations (MUGS), specifically dedicated to young stellar objects. astroMUGS is the new version of the library chemdiskpy.
 
 This code performs dust continuum radiative transfer simulations of protoplanetary disks with RADMC3D and allows to use the resulting dust tempeature and local radiation field for gas-grain simulations (NAUTILUS).
 The code can convert any relevant RADMC3D input/output files to a NAUTILUS friendly format, and vice-versa. 
