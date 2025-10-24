@@ -4,7 +4,7 @@ with open("README.md", "r", encoding="utf-8") as fh:
     long_description = fh.read()
 
 setuptools.setup(
-    name="chemdiskpy",
+    name="astromugs",
     version="1.0.5",
     author="Sacha Gavino",
     author_email="sacha.gavino@unibo.it",
@@ -17,16 +17,16 @@ setuptools.setup(
         "Operating System :: OS Independent",
     ],
       packages=[\
-        "chemdiskpy",\
-        "chemdiskpy.constants", \
-        "chemdiskpy.dust",\
-        "chemdiskpy.modeling",\
-        "chemdiskpy.radmc3d",\
-        "chemdiskpy.plotting",\
-        "chemdiskpy.nautilus"],\
+        "astromugs",\
+        "astromugs.constants", \
+        "astromugs.dust",\
+        "astromugs.modeling",\
+        "astromugs.radmc3d",\
+        "astromugs.plotting",\
+        "astromugs.nautilus"],\
         package_dir={\
-        "chemdiskpy.dust": 'chemdiskpy/dust'}, \
+        "astromugs.dust": 'astromugs/dust'}, \
         package_data={\
-        'chemdiskpy.nautilus': ['network/*.in']}, \
+        'astromugs.nautilus': ['network/*.in']}, \
     python_requires=">=3.10",
 )
