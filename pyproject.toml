@@ -8,7 +8,7 @@ build-backend = "setuptools.build_meta"
 
 
 [project]
-name = "chemdiskpy"
+name = "astromugs"
 authors = [{name = "Sacha Gavino", email = "sacha.gavino@unibo.it"}]
 dynamic = ["version", "description", "readme", "classifiers", "requires-python"]
 

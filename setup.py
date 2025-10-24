@@ -5,7 +5,7 @@ with open("README.md", "r", encoding="utf-8") as fh:
 
 setuptools.setup(
     name="astromugs",
-    version="1.0.5",
+    version="1.0.6",
     author="Sacha Gavino",
     author_email="sacha.gavino@unibo.it",
     description="Thermal and chemical modeling of multiple grain-sized protoplanetary disks",
