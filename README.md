@@ -6,14 +6,14 @@
 
 # A code for MUlti-Grain Simulations (MUGS) dedicated to young stellar objects. 
 
-A modular and user-friendly pipeline to couple MHD, radiative transfer, and chemistry codes, 
+A modular and user-friendly pipeline to couple MHD, radiative transfer, and chemistry simulations. 
 The code can convert RADMC3D input/output files to a NAUTILUS friendly format, and vice-versa. 
 astroMUGS is the new version of the library chemdiskpy.
 
 
 ## Installation
 
-- latest release from test [https://test.pypi.org/](https://test.pypi.org/):
+- You can find the latest release from test (for now) [https://test.pypi.org/](https://test.pypi.org/):
 
         pip install -i https://test.pypi.org/simple/ astromugs
 
@@ -23,8 +23,7 @@ A detailed documentation can be found [here][1].
 
 [1]: https://astromugs.readthedocs.io/en/latest
 
-## Quick start
-
+## Very quick start
 
 ### Set up a directory 
 1. Create a working folder where you want to create a model and go to this folder.
@@ -39,7 +38,7 @@ A detailed documentation can be found [here][1].
 ## EXAMPLE:
 
 ### IMPORT PACKAGE
-- Open any notebook or script in the working directory:
+- Open any notebook or script in the working directory and import the package:
 
 ```
 import astromugs.modeling as modeling
