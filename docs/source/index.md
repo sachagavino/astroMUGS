@@ -2,7 +2,7 @@
 myst:
   html_meta:
     "description lang=en": |
-      Top-level documentation for chemdiskpy, with links to the rest
+      Top-level documentation for astromugs, with links to the rest
       of the site..
 html_theme.sidebar_secondary.remove: true
 ---

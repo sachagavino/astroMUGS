@@ -20,7 +20,7 @@ from sphinx.application import Sphinx
 
 # -- Project information --------------------------------
 
-project = 'chemdiskpy'
+project = 'astromugs'
 copyright = '{0}, {1}'.format(datetime.datetime.now().year, 'Sacha Gavino')
 authors = 'Sacha Gavino'
 
@@ -93,7 +93,7 @@ html_sourcelink_suffix = ""
 html_last_updated_fmt = ""  # to reveal the build date in the pages meta
 
 # Define the json_url for our version switcher.
-json_url = "https://chemdiskpy.readthedocs.io/en/latest/_static/switcher.json"
+json_url = "https://astromugs.readthedocs.io/en/latest/_static/switcher.json"
 
 
 
