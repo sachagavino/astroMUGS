@@ -17,7 +17,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 from matplotlib.colors import LogNorm
 
-from chemdiskpy.constants.constants import autocm
+from astromugs.constants.constants import autocm
 
 
 def density2D(mass1, mass2=None, overlap=False):
