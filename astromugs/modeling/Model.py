@@ -1,12 +1,17 @@
-import glob, os, sys, shutil 
+import glob
+import os 
+import sys
+import shutil 
 import numpy as np
 
-from .. import radmc3d
-from .. import nautilus
-from .Grid import Grid
 
-from .. constants.constants import autocm, M_sun, R_sun, c, amu, mu, black_body
-from ..modeling.InterstellarRadFields import InterstellarRadFields
+import astromugs
+from astromugs import radmc3d
+from astromugs import nautilus
+from astromugs.modeling.Grid import Grid
+
+from astromugs.constants.constants import autocm, M_sun, R_sun, c, amu, mu, black_body
+from astromugs.modeling.InterstellarRadFields import InterstellarRadFields
 
 import matplotlib.pyplot as plt
 

@@ -1,6 +1,7 @@
 import os
 import numpy as np
 import pandas as pd
+import xarray as xr
 
 
 
@@ -50,6 +51,20 @@ def grid(radlist, nb_sizes, itime, species, chempath):
                 grain_densities = nh / np.transpose(grain_abundances)  # Broadcasting division
 
 
+            #---abundances---
+            #ab_list =  network_species(chempath, radius)
+            ab_folder = f'{chempath}{radius}AU/ab/'
+            ab_list = [f for f in os.listdir(ab_folder) if f.endswith(".ab") and os.path.isfile(os.path.join(ab_folder, f))]
+
+            ab_list = [
+            os.path.splitext(f)[0]  # remove extension
+            for f in os.listdir(ab_folder)
+            if f.endswith(".ab") 
+            and os.path.isfile(os.path.join(ab_folder, f))
+            and 'space' not in f and 'l' not in f#get rid of all non-abundance names.
+            ]
+
+         
             abundance = np.loadtxt(f'{chempath}{radius}AU/ab/{species}.ab', comments='!')
             abundance = np.delete(abundance[itime], 0)
             chem_numdens = nh*abundance
@@ -96,6 +111,23 @@ def radii(chempath):
 
     radlist = sorted(radlist)
     return radlist
+
+def network_species(chempath, radius):
+    ab_folder = os.listdir (chempath+radius+"AU/ab/") # get all files' and folders' names in the current directory
+
+    # List all .ab files in the ab/ directory for the given radius
+    ab_list = [f for f in os.listdir(ab_folder) if f.endswith(".ab") and os.path.isfile(os.path.join(ab_folder, f))]
+
+
+    ab_list = [
+    os.path.splitext(f)[0]  # remove extension
+    for f in os.listdir(ab_folder)
+    if f.endswith(".ab") 
+    and os.path.isfile(os.path.join(ab_folder, f))
+    and 'space' not in f and 'l' not in f#get rid of all non-abundance names.
+    ]
+
+    return ab_list
 
 # def abundance(path, itime=47, species='CO'):
 #     chemmodel = pd.read_table(path + 'disk_t{}.dat'.format(str(itime)), sep=" ", engine='python')

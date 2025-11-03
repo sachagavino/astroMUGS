@@ -6,17 +6,25 @@ language: PYTHON 3.8
 short description:  Model of a static flared disk adapted for RT and chemistry simulations
 _____________________________________________________________________________________________________________
 """
-from __future__ import absolute_import
-import os, sys, inspect
+import os
+import sys
+import inspect
 import numpy as np
 
-from .. constants.constants import mu, autocm, amu, Ggram, kb, M_sun
+from dataclasses import dataclass, fields, is_dataclass
+from typing import Optional, Literal, Any
 
-currentdir = os.path.dirname(os.path.abspath(inspect.getfile(inspect.currentframe())))
-parentdir = os.path.dirname(currentdir)
-sys.path.insert(0,parentdir) 
+from astromugs.utils.params import DiskParams
+from astromugs.constants.constants import (
+    mu,
+    autocm,
+    amu,
+    Ggram,
+    kb,
+    M_sun,
+)
 
-import parameters as p
+
 #___________________________________________
 #   _______    __    _______    __   ___
 #  |   __  \  |  |  |  _____|  |  | /  /
@@ -26,39 +34,18 @@ import parameters as p
 #  |_______/  |__|  |_______|  |__| \__\
 #___________________________________________
 class Disk:
-    def __init__(self, ref_radius=p.ref_radius, rin=p.rin, rout=p.rout, star_mass=p.star_mass, disk_mass=p.disk_mass, h0=p.h0, \
-                       sigma_gas_ref=p.sigma_gas_ref, Tmidplan_ref=p.Tmidplan_ref, Tatmos_ref=p.Tatmos_ref, sigma_t = p.sigma_t, q_exp=p.q_exp,  \
-                       d_exp=p.d_exp, p_exp=p.p_exp, dtogas=p.dtogas, rho_m=p.rho_m, schmidtnumber=p.schmidtnumber, alpha=p.alpha, \
-                       settfact=p.settfact, max_H=p.max_H, nz_chem=p.nz_chem, dust_mass=p.disk_dust_mass, q_c = p.q_c, dust=None, \
-                       settling=True, isothermal=False, dust_density='g.cm-2', coordsystem='spherical'):                      
-        self.ref_radius = ref_radius
-        self.rin = rin
-        self.rout = rout
-        self.star_mass = star_mass
-        self.disk_mass = disk_mass
-        self.h0 = h0
-        self.sigma_gas_ref = sigma_gas_ref
-        self.Tmidplan_ref = Tmidplan_ref
-        self.Tatmos_ref = Tatmos_ref
-        self.sigma_t = sigma_t
-        self.q_exp = q_exp
-        self.d_exp = d_exp
-        self.p_exp = p_exp
-        self.dtogas = dtogas
-        self.rho_m = rho_m
-        self.schmidtnumber = schmidtnumber
-        self.alpha = alpha
-        self.settfact = settfact
-        self.max_H = max_H
-        self.nz_chem = nz_chem
-        if (dust != None):
-            self.dust = dust
-        self.dust_mass = dust_mass
-        self.settling = settling
-        self.isothermal = isothermal
-        self.dust_density = dust_density
-        self.coordsystem = coordsystem
-        self.q_c = q_c
+    def __init__(
+        self, 
+        params: DiskParams, 
+        dust: Optional[object] = None
+    ):
+        self.params = params
+        self.dust = dust
+
+        # copy dataclass attributes to instance variables (optional)
+        for field in params.__dataclass_fields__:
+            setattr(self, field, getattr(params, field))
+
 
     """
 	The following methods give the physical parameters related to the gas phase in the disk.
@@ -73,7 +60,7 @@ class Disk:
         G) density_gauss(self, x1, x2, x3=None)
         H) density(self, x1, x2, x3=None)
         I) numberdensity(self, x1, x2, x3=None)
-        J) viscous_accretion_heating(self)
+        J) viscous_accretion_heating(self, x1, x2, x3=None)
     """
 
     def scaleheight(self, r):
@@ -84,14 +71,14 @@ class Disk:
         	-r:             distances from the star - can be a list [au]
             -R_ref:         reference radius [au]
         """
-        h_exp = (3./2.) - (self.q_exp/2.)
-        if self.h0 != None: 
-            hgas = self.h0*autocm*(r/(self.ref_radius))**h_exp
-        elif self.Tmidplan_ref != None:
-            h0 = np.sqrt((kb*self.Tmidplan_ref*(self.ref_radius*autocm)**3)/(mu*amu*Ggram*self.star_mass*M_sun))
-            self.h0 = h0/autocm
+        h_exp = (3./2.) - (self.params.q_exp/2.)
+        if self.params.h0 != None: 
+            hgas = self.params.h0*autocm*(r/(self.params.ref_radius))**h_exp
+        elif self.params.tmidplan_ref != None:
+            h0 = np.sqrt((kb*self.params.tmidplan_ref*(self.params.ref_radius*autocm)**3)/(mu*amu*Ggram*self.params.star_mass*M_sun))
+            self.params.h0 = h0/autocm
             #h0 = h0/autocm
-            hgas = h0*(r/(self.ref_radius))**h_exp
+            hgas = h0*(r/(self.params.ref_radius))**h_exp
 
         return hgas
 
@@ -102,10 +89,10 @@ class Disk:
 	    args:
 	    	-r:                     distance from the star [au]
         """
-        if self.sigma_gas_ref != None:
-            sigma_g = 2*self.sigma_gas_ref*(r/(self.ref_radius))**(-self.p_exp)  #2 or not??
+        if self.params.sigma_gas_ref != None:
+            sigma_g = 2*self.params.sigma_gas_ref*(r/(self.params.ref_radius))**(-self.params.p_exp)  #2 or not??
         else:
-            sigma_g = (1/self.dtogas)*self.sigma_d0*(r/(self.ref_radius))**(-self.p_exp)
+            sigma_g = (1/self.params.dtogas)*self.sigma_d0*(r/(self.params.ref_radius))**(-self.params.p_exp)
         return sigma_g
 
     def omega2(self, r):
@@ -114,7 +101,7 @@ class Disk:
         Args:
             -r:        distance from the star [au]
         """
-        return (Ggram*self.star_mass*M_sun)/(r*autocm)**3
+        return (Ggram*self.params.star_mass*M_sun)/(r*autocm)**3
 
 
     def temp_mid(self, r):
@@ -123,13 +110,13 @@ class Disk:
         Args: 
 	        -r:             distance from the star [au]
         """
-        return self.Tmidplan_ref*(r/self.ref_radius)**(-self.q_exp)
+        return self.params.tmidplan_ref*(r/self.params.ref_radius)**(-self.params.q_exp)
 
     def temp_atmos(self, r):
         """ E)
 	    Temperature profile in altitude. Unit: Kelvin   
 	    """
-        return self.Tatmos_ref*(r/self.ref_radius)**(-self.q_exp)
+        return self.params.tatmos_ref*(r/self.params.ref_radius)**(-self.params.q_exp)
 
     def temp_altitude(self, r, z):
         """ F)
@@ -144,7 +131,7 @@ class Disk:
         ttatm, zz = np.meshgrid(tatm, z, indexing='ij')
         zz = hhg*zz
         zz0, z = np.meshgrid(zz[:, 0], z,  indexing='ij')
-        return ttmid+(ttatm-ttmid)*np.sin((np.pi*zz)/(2*zz0))**(2*self.sigma_t)
+        return ttmid+(ttatm-ttmid)*np.sin((np.pi*zz)/(2*zz0))**(2*self.params.sigma_t)
 	
     def verticaldensity_gauss(self, r):
         """ G)
@@ -152,7 +139,7 @@ class Disk:
         WARNING: We divide here by mass to have the number density instead of mass density.
         """
         sigma = self.surfacedensity()
-        sigma[(r >= self.rout) ^ (r <= self.rin)] = 0e0
+        sigma[(r >= self.params.rout) ^ (r <= self.params.rin)] = 0e0
         H = self.scaleheight(r)
         z = self.altitudes()	
         return (sigma/(mu*amu*H*autocm*np.sqrt(2.*np.pi)))\
@@ -169,13 +156,13 @@ class Disk:
         profile, the density can be computed iteratively. The profile slightly deviates from a Gaussian profile.
         This is done for cartesian coordinates only for now, will be done for spherical structure in a future update. 
         """
-        if self.coordsystem == "spherical":
+        if self.params.coordsystem == "spherical":
             rhog = np.ones((len(x1), len(x2), len(x3)))
 
             rt, tt, pp = np.meshgrid(x1*autocm, x2, x3, indexing='ij')
             rr = rt*np.sin(tt)
             zz = rt*np.cos(tt)
-            zzmax = self.rout*autocm*np.cos(tt)
+            zzmax = self.params.rout*autocm*np.cos(tt)
             border = np.greater_equal(abs(zzmax), abs(zz))*1 #used to spherically cut the disk in case the grid is larger than the disk outer radius e.g. if an envelope is present
 
             sigma_g = self.surfacedensity(rr/autocm)
@@ -184,7 +171,7 @@ class Disk:
             rhog = (sigma_g/(np.sqrt(2*np.pi)*hg))*np.exp(-(zz[:,:,:]**2)/(2*hg**2))*border
 
 
-        if self.coordsystem == "nautilus":
+        if self.params.coordsystem == "nautilus":
             omega2 = self.omega2(x1)
             sigma_g = self.surfacedensity(x1)
             hg = self.scaleheight(x1)
@@ -212,7 +199,7 @@ class Disk:
         ng = self.density(x1, x2, x3)/(mu*amu)            
         return ng
 
-    def viscous_accretion_heating(self, acc_rate, lim_h, x1, x2, x3=None):
+    def viscous_accretion_heating(self, x1, x2, x3=None):
         """ I)
         Return the viscous accretion heating. Unit: erg.cm^-3.s-1. The density is computed assumging hydrostatic equilibrium.
 
@@ -220,20 +207,20 @@ class Disk:
         -----
         If vertically isothermal, the profile is Gaussian. If not, the density can be computed iteratively and the profile is not Gaussian.
         """
-        if self.coordsystem == "spherical":
+        if self.params.coordsystem == "spherical":
             yrtosec = 31536000 # number of second in a year. 
             q_visc = np.ones((len(x1), len(x2), len(x3)))
             rt, tt, pp = np.meshgrid(x1*autocm, x2, x3, indexing='ij')
             rr = rt*np.sin(tt)
             zz = rt*np.cos(tt)
-            zzmax = self.rout*autocm*np.cos(tt)
+            zzmax = self.params.rout*autocm*np.cos(tt)
             sigma_g = self.surfacedensity(rr/autocm)
             hg = self.scaleheight(rr/autocm)
             omega2 = self.omega2(rr/autocm)
             border_max = np.greater_equal(abs(zzmax), abs(zz))*1  # make border at rout
-            border_h = np.greater_equal(abs(lim_h*hg), abs(zz))*1 #make border at lim_h scale height. 
+            border_h = np.greater_equal(abs(self.params.lim_h*hg), abs(zz))*1 #make border at lim_h scale height. 
             border = border_max*border_h
-            q_visc = ((3*acc_rate*M_sun*omega2)/(4*np.pi*np.sqrt(2*np.pi)*hg*yrtosec))*np.exp(-(zz[:,:,:]**2)/(2*hg**2))*border
+            q_visc = ((3*self.params.acc_rate*M_sun*omega2)/(4*np.pi*np.sqrt(2*np.pi)*hg*yrtosec))*np.exp(-(zz[:,:,:]**2)/(2*hg**2))*border
             #q_visc[q_visc==0.0] = 1e-30         
         return q_visc
 
@@ -259,22 +246,22 @@ class Disk:
         #print(r.shape)
         #sig = np.ones((fraction.shape, r[0].shape, r[1].shape, r[2].shape))
         #print(sig)
-        if self.sigma_gas_ref != None:
-            sigma_di0 = fraction*self.dtogas*self.sigma_gas_ref
-            sigma_single0 = self.dtogas*self.sigma_gas_ref
+        if self.params.sigma_gas_ref != None:
+            sigma_di0 = fraction*self.params.dtogas*self.params.sigma_gas_ref
+            sigma_single0 = self.params.dtogas*self.params.sigma_gas_ref
         else:
-            self.sigma_d0 = (2-self.p_exp)*self.dust_mass*M_sun/(2*np.pi*(self.ref_radius)**(self.p_exp)) / \
-                       (self.rout**(-self.p_exp+2) - self.rin**(-self.p_exp+2)) /autocm**2
+            self.sigma_d0 = (2-self.params.p_exp)*self.params.dust_mass*M_sun/(2*np.pi*(self.params.ref_radius)**(self.params.p_exp)) / \
+                       (self.params.rout**(-self.params.p_exp+2) - self.params.rin**(-self.params.p_exp+2)) /autocm**2
             sigma_di0 = fraction*self.sigma_d0
             sigma_single0 = self.sigma_d0
  
         for s in sigma_di0:
-            sig = s*(r/self.ref_radius)**(-self.p_exp)
-            sig[(r >= self.rout) ^ (r <= self.rin)] = 0e0 # In case sigma is outside disk outer boundaries
+            sig = s*(r/self.params.ref_radius)**(-self.params.p_exp)
+            sig[(r >= self.params.rout) ^ (r <= self.params.rin)] = 0e0 # In case sigma is outside disk outer boundaries
             sigmad.append(sig)
         
-        sig_single = sigma_single0*(r/self.ref_radius)**(-self.p_exp)
-        sig_single[(r >= self.rout) ^ (r <= self.rin)] = 0e0 # In case sigma is outside disk outer boundaries
+        sig_single = sigma_single0*(r/self.params.ref_radius)**(-self.params.p_exp)
+        sig_single[(r >= self.params.rout) ^ (r <= self.params.rin)] = 0e0 # In case sigma is outside disk outer boundaries
 
         return np.array(sigmad), sig_single
 
@@ -291,16 +278,16 @@ class Disk:
         sizes = self.dust.sizes() #grain size in microns
         rsingle = self.dust.rsingle
 
-        if self.settling == True:
+        if self.params.settling == True:
             sigma_g = self.surfacedensity(r)
             for a in sizes[-1]:
-                stoptime_mid =(np.pi*a*1e-4*self.rho_m)/(2*sigma_g)
-                hd.append(hg/(np.sqrt(1 + stoptime_mid*(self.schmidtnumber/self.alpha))))
-            stoptime_mid_single =(np.pi*self.dust.rsingle*1e-4*self.rho_m)/(2*sigma_g)
-            hd_single = hg/(np.sqrt(1 + stoptime_mid_single*(self.schmidtnumber/self.alpha)))
+                stoptime_mid =(np.pi*a*1e-4*self.params.rho_m)/(2*sigma_g)
+                hd.append(hg/(np.sqrt(1 + stoptime_mid*(self.params.schmidtnumber/self.params.alpha))))
+            stoptime_mid_single =(np.pi*self.dust.rsingle*1e-4*self.params.rho_m)/(2*sigma_g)
+            hd_single = hg/(np.sqrt(1 + stoptime_mid_single*(self.params.schmidtnumber/self.params.alpha)))
             return np.array(hd), hd_single
 
-        if self.settling == False:
+        if self.params.settling == False:
             for a in sizes[-1]:
                 hd.append(hg)
             return np.array(hd), hg
@@ -315,11 +302,11 @@ class Disk:
 	    """	
         rhod = []
         rhod_single = []
-        if self.coordsystem =='spherical':
+        if self.params.coordsystem =='spherical':
             rt, tt, pp = np.meshgrid(x1*autocm, x2, x3, indexing='ij')
             rr = rt*np.sin(tt)
             zz = rt*np.cos(tt)
-            zzmax = self.rout*autocm*np.cos(tt)
+            zzmax = self.params.rout*autocm*np.cos(tt)
             sigmad, sigmad_single = self.surfacedensity_d(rr/autocm)
             hd, hd_single = self.scaleheight_d(rr/autocm)
             rhod = np.ones( (len(hd), len(x1), len(x2), len(x3)))
@@ -329,7 +316,7 @@ class Disk:
                 rhod[i, :, :, :] = (sigmad[i,:,:,:]/(np.sqrt(2*np.pi)*hd[i,:,:,:]))*np.exp(-(zz[:,:,:]**2)/(2*hd[i,:,:,:]**2))*border
 
 
-        if self.coordsystem =='nautilus':
+        if self.params.coordsystem =='nautilus':
             rr, zz = np.meshgrid(x1*autocm, x2, indexing='ij')
             sigmad, sigmad_single = self.surfacedensity_d(rr/autocm)
             hg = self.scaleheight(rr/autocm)
@@ -343,8 +330,8 @@ class Disk:
             rhod_single[:, :] = (sigmad_single/(np.sqrt(2*np.pi)*hd_single))*np.exp(-((zz)**2)/(2*hd_single**2))
             self.rhod_single = rhod_single
 
-        if self.dust_density == 'g.cm-2':
-            return rhod
+
+        return rhod
 
     def numberdensity_d(self, x1, x2, x3=None):
         """ D)
@@ -418,9 +405,9 @@ class Disk:
                 if wl <= np.pi*a:
                     qext[idx_a, idx_wl] = 1  #regime A
                 elif np.pi*a < wl < 2*np.pi*a:
-                    qext[idx_a, idx_wl] = self.q_c*(wl/lambda_c[idx_a])**(np.log10(self.q_c)/np.log10(2)) #regime B
+                    qext[idx_a, idx_wl] = self.params.q_c*(wl/lambda_c[idx_a])**(np.log10(self.params.q_c)/np.log10(2)) #regime B
                 elif wl >= 2*np.pi*a:
-                    qext[idx_a, idx_wl] = self.q_c*(wl/lambda_c[idx_a])**(-2) #regime C
+                    qext[idx_a, idx_wl] = self.params.q_c*(wl/lambda_c[idx_a])**(-2) #regime C
 
         rr, zz = np.meshgrid(r, z, indexing='ij')
         hg = self.scaleheight(rr)    
