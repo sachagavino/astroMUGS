@@ -28,3 +28,4 @@ A detailed documentation can be found [here][1].
 
 [1]: https://astromugs.readthedocs.io/en/latest
 
+## Releases
