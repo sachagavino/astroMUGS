@@ -1,10 +1,10 @@
 [![astroMUGS](https://img.shields.io/badge/astroMUGS-green?style=flat-square&logo=gmail&logoColor=FFFFFF&labelColor=3A3B3C&color=62F1CD)](https://github.com/sachagavino/astroMUGS/)
-
+[![image](https://img.shields.io/pypi/pyversions/uv.svg)](https://test.pypi.org/project/astromugs)
 
 <picture>
   <source srcset="docs/source/_static/logo-dark-name.png" media="(prefers-color-scheme: dark)">
   <source srcset="docs/source/_static/logo-light.png" media="(prefers-color-scheme: light)">
-  <img src="docs/source/_static/logo-dark-name.png" alt="astroMUGS", width="100">
+  <img src="docs/source/_static/logo-dark-name.png" alt="astroMUGS", width="300">
 </picture>
 
 # A code for MUlti-Grain Simulations (MUGS) dedicated to young stellar objects. 
