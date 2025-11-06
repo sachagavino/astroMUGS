@@ -16,7 +16,6 @@ def fmt_value(v, sci_threshold=1e3):
 # =======================================================
 # HTML REPR FOR JUPYTER (collapsible panel)
 # =======================================================
-
 def _html_repr(obj):
     """Return a collapsible HTML panel with MathJax-enabled table."""
     if not is_dataclass(obj):

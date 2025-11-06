@@ -1,14 +1,21 @@
+[![astroMUGS](https://img.shields.io/badge/astroMUGS-green?style=flat-square&logo=gmail&logoColor=FFFFFF&labelColor=3A3B3C&color=62F1CD)](https://github.com/sachagavino/astroMUGS/)
+
+
 <picture>
   <source srcset="docs/source/_static/logo-dark-name.png" media="(prefers-color-scheme: dark)">
   <source srcset="docs/source/_static/logo-light.png" media="(prefers-color-scheme: light)">
-  <img src="docs/source/_static/logo-dark-name.png" alt="astroMUGS">
+  <img src="docs/source/_static/logo-dark-name.png" alt="astroMUGS", width="100">
 </picture>
 
 # A code for MUlti-Grain Simulations (MUGS) dedicated to young stellar objects. 
 
 A modular and user-friendly pipeline to couple MHD, radiative transfer, and chemistry simulations. 
 The code can convert RADMC3D input/output files to a NAUTILUS friendly format, and vice-versa. 
-astroMUGS is the new version of the library chemdiskpy.
+astroMUGS is the new version of the library chemdiskpy. The pipeline is based on a combination of [Xarray][1]
+and [Zarr][2] for a fast and intuitive use.
+
+[1]: https://docs.xarray.dev/en/stable/
+[2]: https://zarr.dev/
 
 
 ## Installation
@@ -24,8 +31,8 @@ astroMUGS is the new version of the library chemdiskpy.
 
 
 ## Documentation
-A detailed documentation can be found [here][1]. 
+A detailed documentation can be found [here][3]. 
 
-[1]: https://astromugs.readthedocs.io/en/latest
+[3]: https://astromugs.readthedocs.io/en/latest
 
 ## Releases
