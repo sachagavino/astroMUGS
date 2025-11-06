@@ -1,6 +1,6 @@
 # astroMUGS
 
-[![astroMUGS](https://img.shields.io/badge/astroMUGS-green?style=flat-square)](https://github.com/sachagavino/astroMUGS/)
+[![astroMUGS](https://img.shields.io/badge/astroMUGS-green?style=flat-square&logo=docs/source/_static/logo-dark.png)](https://github.com/sachagavino/astroMUGS/)
 [![image](https://img.shields.io/pypi/pyversions/uv.svg)](https://test.pypi.org/project/astromugs)
 [![image](https://img.shields.io/pypi/l/uv.svg)](https://pypi.python.org/pypi/uv)
 
