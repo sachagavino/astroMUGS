@@ -16,7 +16,7 @@
 
 A modular and user-friendly pipeline to couple MHD, radiative transfer, and chemistry simulations. 
 The code can convert RADMC3D input/output files to a NAUTILUS friendly format, and vice-versa. 
-astroMUGS is the new version of the library chemdiskpy. The pipeline is based on a combination of [Xarray][1]
+astroMUGS is the new version of the library chemdiskpy. In the next release, the pipeline will be based on a combination of [Xarray][1]
 and [Zarr][2] for a fast and intuitive use.
 
 [1]: https://docs.xarray.dev/en/stable/

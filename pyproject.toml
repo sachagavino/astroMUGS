@@ -11,7 +11,7 @@ build-backend = "setuptools.build_meta"
 name = "astromugs"
 authors = [{name = "Sacha Gavino", email = "sacha.gavino@unibo.it"}]
 description = "A package to runs postprocessing of MUlti-Grain simulations." 
-dynamic = ["version", "description", "readme", "classifiers", "requires-python"]
+dynamic = ["version", "readme", "classifiers", "requires-python"]
 
 
 [tool.setuptools.dynamic]
