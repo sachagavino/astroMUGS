@@ -12,12 +12,14 @@
 
 
 
-# A code for MUlti-Grain Simulations (MUGS) dedicated to young stellar objects. 
+# A full pipeline for MUlti-Grain Simulations (MUGS) of young stellar objects. 
 
-A modular and user-friendly pipeline to couple MHD, radiative transfer, and chemistry simulations. 
-The code can convert RADMC3D input/output files to a NAUTILUS friendly format, and vice-versa. 
-astroMUGS is the new version of the library chemdiskpy. In the next release, the pipeline will be based on a combination of [Xarray][1]
-and [Zarr][2] for a fast and intuitive use.
+A modular and intuitive pipeline to couple multi-grain MHD, radiative transfer, and chemistry simulations. 
+In the current version, the code converts multi-grain RADMC3D input/output files into a NAUTILUS friendly format, and vice-versa for synthetic line emission maps. 
+The pipeline includes ready-to-use sophisticated disk and envelope models to use astroMUGS from scratch. 
+In the next release, the pipeline will be based on a combination of [Xarray][1]
+and [Zarr][2] for a fast and intuitive use. 
+Ultimately, the pipeline will also include post-processing of multi-fluid MHD simulations.
 
 [1]: https://docs.xarray.dev/en/stable/
 [2]: https://zarr.dev/
