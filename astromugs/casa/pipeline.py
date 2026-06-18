@@ -62,13 +62,16 @@ def cd(newdir):
     finally:
         os.chdir(prevdir)
 
-def writing_input_files(chemistry_path,thermal_path,MOLEC,datadict,verbose=True):
+def writing_input_files(chemistry_path,thermal_path,MOL,datadict,verbose=True):
     """ Writing input files :
      - numberdens_XX.inp
      - gas_velocity.inp
      - lines.inp
      - gas_temperature.inp"""
-     
+
+    chemistry_path = Path(chemistry_path)
+    thermal_path = Path(thermal_path)
+    
     with silence(verbose):
         pipe = pipeline.Interface()
         pipe.add_chemical_path(chemistry_path)  # path to the chemistry directory
@@ -76,7 +79,7 @@ def writing_input_files(chemistry_path,thermal_path,MOLEC,datadict,verbose=True)
         pipe.add_chemistry()
         
         # WRITING numberdens_XX.inp FILES
-        for molec in MOLEC:
+        for molec in MOL:
             pipe.convert_nautilus2radmc(species=molec, numberdens=True)
             
             # WRITING INPUT FILES
