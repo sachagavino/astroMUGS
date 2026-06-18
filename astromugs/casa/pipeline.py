@@ -70,7 +70,7 @@ def writing_input_files(chemistry_path,thermal_path,MOL,datadict,verbose=True):
      - gas_temperature.inp"""
 
     chemistry_path = Path(chemistry_path)
-    thermal_path = Path(thermal_path)
+    thermal_path = str(Path(thermal_path))
     
     with silence(verbose):
         pipe = pipeline.Interface()
