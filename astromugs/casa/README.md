@@ -29,3 +29,9 @@ The workflow is structured into five distinct operational phases:
 3.  **Synthetic Data Generation:** Triggers RADMC-3D to calculate the localized non-LTE or LTE population levels and execute ray-tracing for a specific tracer molecule (e.g., Carbon Monoxide, $^{12}\text{CO}$) within the ALMA Band 7 receiver frequency framework.
 4.  **CASA Synthesis Imaging:** Conversions to native CASA `.image` formats are performed on disk, followed by visibilities merging, automated Fourier transformations, and multiscale clean loops.
 5.  **Data Reduction & Analysis:** Generates final channel maps showing intensity patterns ($\text{Jy/beam}$) as a function of velocity space, instantly exporting individual frames to local directories for comparative studies against real observational data.
+
+### 3. `ALMA.dat` 
+This file contains ALMA data, like bands and frequencies.
+
+> [!NOTE]
+> It must be in the thermal directory.
