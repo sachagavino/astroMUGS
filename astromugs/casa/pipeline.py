@@ -83,7 +83,7 @@ def writing_input_files(chemistry_path,thermal_path,MOL,datadict,verbose=True):
             pipe.convert_nautilus2radmc(species=molec, numberdens=True)
             
             # WRITING INPUT FILES
-        pipe.write_line(control=False, line=True, gasvelocity=True,gastemp='1D_static', species=MOLEC, star_mass=datadict['m_star'])
+        pipe.write_line(control=False, line=True, gasvelocity=True,gastemp='1D_static', species=MOL, star_mass=datadict['m_star'])
     if not verbose : print("Done without error")
 
 
