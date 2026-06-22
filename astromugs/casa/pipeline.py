@@ -7,7 +7,7 @@ Created on Fri Jun 12 16:42:35 2026
 
 import astromugs.pipeline as pipeline
 
-from casatasks import simobserve, importfits, concat, tclean, exportfits
+from casatasks import simobserve, importfits, concat, tclean, exportfits, mmoments
 
 import radmc3dPy as r3d
 
@@ -26,6 +26,10 @@ from contextlib import contextmanager, redirect_stdout, redirect_stderr
 from astropy.io import fits
 from astropy.wcs import WCS
 from matplotlib.patches import Ellipse
+from astropy.visualization import Normalize
+from mpl_toolkits.axes_grid1 import make_axes_locatable
+from reproject import reproject_interp
+from matplotlib.colors import LogNorm, Normalize
 
 @contextmanager
 def silence(verbose=False):
@@ -1432,3 +1436,321 @@ def load_and_plot_image(path, name, main_dict, plot=True, cmap='jet', log=False,
             plt.close('all')
             
     return im
+
+
+
+def plot_line_with_continuum_contours(fits_continuum, fits_line,
+                                      cont=[30, 50, 70, 90],
+                                      cmap="viridis",
+                                      zoom_window=None,
+                                      save_png=False):
+    """
+    Plots a 2D line emission map overlayed with spatial contours of dust continuum.
+
+    This function extracts 2D spatial slices from potentially higher-dimensional 
+    FITS data cubes (e.g., [RA, Dec, Freq, Stokes]), dynamically reprojects the 
+    continuum map onto the pixel grid of the line emission map using Astropy's WCS, 
+    and generates a publication-quality overlay map. It explicitly manages the 
+    Matplotlib lifecycle to prevent duplicate figure rendering in Jupyter notebook 
+    environments.
+
+    Args:
+        fits_continuum (str): Path to the FITS file containing the continuum data.
+        fits_line (str): Path to the FITS file containing the line emission data.
+        cont (list of float, optional): Contour levels specified as percentages of 
+            the peak continuum intensity. Defaults to [30, 50, 70, 90].
+        cmap (str, optional): Matplotlib colormap name for the background line 
+            emission intensity map. Defaults to "viridis".
+        zoom_window (tuple or list, optional): Bounding box for spatial cropping 
+            in pixel coordinates, defined as (xmin, xmax, ymin, ymax). 
+            Defaults to None.
+        save_png (bool): If True, plot saved.
+            Defaults to False
+
+    Returns:
+        None (displays the generated matplotlib figure directly).
+    """
+    # 1. Open FITS datasets and extract 2D celestial matrices
+    with fits.open(fits_continuum) as hdul_cont:
+        raw_cont = hdul_cont[0].data
+        header_cont = hdul_cont[0].header
+        # Handle 4D (Stokes, Freq, Dec, RA) or 3D (Freq, Dec, RA) data cubes safely
+        data_cont_2d = raw_cont[0, 0, :, :] if raw_cont.ndim == 4 else (raw_cont[0, :, :] if raw_cont.ndim == 3 else raw_cont)
+        wcs_cont_2d = WCS(header_cont).celestial
+        
+    with fits.open(fits_line) as hdul_line:
+        raw_line = hdul_line[0].data
+        header_line = hdul_line[0].header
+        data_line_2d = raw_line[0, 0, :, :] if raw_line.ndim == 4 else (raw_line[0, :, :] if raw_line.ndim == 3 else raw_line)
+        wcs_line_2d = WCS(header_line).celestial
+
+    # 2. Dynamic WCS projection alignment
+    # Reproject the continuum image onto the target frame defined by the line emission map
+    cont_hdu_2d = fits.PrimaryHDU(data=data_cont_2d, header=wcs_cont_2d.to_header())
+    data_cont_reprojected, _ = reproject_interp(cont_hdu_2d, wcs_line_2d, shape_out=data_line_2d.shape)
+
+    # 3. Canvas initialization and interactive mode management
+    # Temporarily disable interactive plotting to suppress intermediate canvas rendering in Jupyter notebooks
+    plt.ioff() 
+
+    fig = plt.figure(figsize=(9, 8), dpi=100)
+    ax = fig.add_subplot(1, 1, 1, projection=wcs_line_2d)
+
+    # --- Layer 1: Background Line Emission Map ---
+    # Apply standard clipping threshold at 1% of the peak flux to filter low-level background noise
+    vmin_line = 0.01 * np.nanmax(data_line_2d)
+    norm_line = Normalize(vmin=vmin_line, vmax=np.nanmax(data_line_2d))
+    im_line = ax.imshow(data_line_2d, cmap=cmap, origin='lower', norm=norm_line)
+
+    # --- Layer 2: Overlayed Continuum Contours ---
+    # Scale contour levels relative to the peak flux density of the reprojected continuum map
+    max_cont = np.nanmax(data_cont_reprojected)
+    levels = [max_cont * c/100 for c in cont]
+    ax.contour(data_cont_reprojected, levels=levels, colors='white', linewidths=1.2, alpha=0.9)
+
+    # 4. Spatial cropping, coordinate formatting, and annotations
+    if zoom_window is not None and len(zoom_window) == 4:
+        ax.set_xlim((zoom_window[0], zoom_window[1]))
+        ax.set_ylim((zoom_window[2], zoom_window[3]))
+
+    ax.set_xlabel('Right Ascension (J2000)', fontsize=11)
+    ax.set_ylabel('Declination (J2000)', fontsize=11)
+    ax.coords.grid(color='white', linestyle=':', alpha=0.1)
+
+    # 5. Colorbar generation and intensity scaling
+    divider = make_axes_locatable(ax)
+    cax = divider.append_axes("right", size="3%", pad=0.1, axes_class=plt.Axes)
+    cbar = fig.colorbar(im_line, cax=cax)
+    cbar.set_label(f"Line Emission [{header_line.get('BUNIT', 'Jy/beam.km/s')}]", fontsize=10)
+
+    plt.title(f"Line Emission & Continuum Contours (White: {', '.join(str(x)+'%' for x in cont)})", fontsize=11, pad=20)
+    plt.tight_layout()
+
+    if save_png: plt.savefig("Line_continuum.png",dpi=350)
+    
+    # 6. Explicit figure rendering and clean-up
+    plt.ion()       # Restore standard interactive framework behavior
+    plt.show()      # Render the finalized figure explicitly 
+    plt.close(fig)  # Free canvas resources to prevent ghost axis leaks in memory
+
+
+def moment_map(image_folder,
+               image_name,
+               moment,
+               verbose=True,
+               plot=True,
+               save_png=True,
+               scale_type=None, 
+               cmap="inferno",
+               zoom_window=None,
+               vmin=None,         
+               vmax=None,
+               beam=True
+               ):
+    """
+    Calculate an astronomical moment map from a cleaned FITS data cube using CASA,
+    and render a coordinate-aware spatial distribution plot using Astropy WCS.
+
+    Parameters
+    ----------
+    image_folder : str or pathlib.Path
+        The active filesystem directory containing the target FITS cube.
+    image_name : str
+        The filename of the input FITS data cube (e.g., 'image_final.fits').
+    moment : int or str
+        The mathematical moment order to evaluate (e.g., 0 for Integrated Intensity, 
+        1 for Intensity-Weighted Velocity, 2 for Velocity Dispersion, 8 for Peak Intensity).
+    verbose : bool, default True
+        If True, outputs execution logs and tracking updates to the console terminal.
+    plot : bool, default True
+        If True, displays the generated graphic canvas inline using interactive windows.
+    save_png : bool, default True
+        If True, exports a high-resolution compressed static PNG image to disk.
+    scale_type : {'log', 'linear'}, optional
+        Force a specific color scaling logic. Overrides automatic defaults if specified.
+    cmap : str, default "inferno"
+        The name of the colormap library used to map pixel value variations.
+    zoom_window : list or tuple of 4 ints, optional
+        A bounding box slice defined in absolute pixel indexing as [xmin, xmax, ymin, ymax].
+    vmin : float, optional
+        Manual lower data limit threshold anchor assigned to the active colormap.
+    vmax : float, optional
+        Manual upper data limit threshold anchor assigned to the active colormap.
+    beam : bool, default True
+        If True, overlays an ellipse patch representing the telescope's synthesized beam.
+
+    Returns
+    -------
+    None
+        Outputs processed FITS files to disk and optionally renders visual plots.
+    """
+
+    # Standardize path inputs and enforce native data types
+    image_folder = Path(image_folder)
+    fits_input = str(image_folder / image_name)
+    m = int(moment)
+    
+    casa_im_out = str(image_folder / f"map_moment{m}.im")
+    fits_map_out = str(image_folder / f"map_moment{m}.fits")
+
+    if verbose: 
+        print(f"\n=== Generating Astronomical Moment-{m} Map ===")
+
+    # -------------------------------------------------------------------------
+    # 1. CASA TASK WORKFLOW PROCESSING
+    # -------------------------------------------------------------------------
+    # Clear existing CASA image directories to prevent execution blockages
+    if os.path.exists(casa_im_out):
+        if os.path.isdir(casa_im_out):
+            shutil.rmtree(casa_im_out)
+            if verbose: print(f"{casa_im_out} deleted")
+        else:
+            os.remove(casa_im_out)
+
+    if verbose: 
+        print("--> Invoking immoments engine...")
+    immoments(
+        imagename=fits_input,   
+        moments=[m],    
+        chans='',    # Process all available spectral channels
+        outfile=casa_im_out
+    )
+    
+    if verbose: 
+        print("--> Exporting structure to absolute 2D spatial FITS layer...")
+    exportfits(
+        imagename=casa_im_out,
+        fitsimage=fits_map_out,
+        dropdeg=True,       # Strip degenerate velocity or polarization axes
+        overwrite=True
+    )
+
+    # -------------------------------------------------------------------------
+    # 2. METADATA PARSING & COORDINATE EXTRACTION
+    # -------------------------------------------------------------------------
+    with fits.open(fits_map_out) as hdul:
+        data = hdul[0].data
+        header = hdul[0].header
+    
+    # Initialize the World Coordinate System array mapping projection
+    wcs = WCS(header)
+
+    # -------------------------------------------------------------------------
+    # 3. MATPLOTLIB INTERACTIVE / HEADLESS RENDER PIPELINE
+    # -------------------------------------------------------------------------
+    # Disable interactive plotting mode if display rendering is not requested
+    if not plot:
+        plt.ioff()
+
+    fig = plt.figure(figsize=(8, 7), dpi=100)
+    ax = fig.add_subplot(1, 1, 1, projection=wcs)
+    
+    # Resolve plotting thresholds or calculate defaults based on statistical metrics
+    cmin = vmin if vmin is not None else (1e-2 if m == 0 else data.min())
+    cmax = vmax if vmax is not None else data.max()
+
+    # Determine data scaling type based on the selected moment orders
+    chosen_scale = scale_type.lower() if scale_type is not None else ('log' if m == 0 else 'linear')
+
+    # Configure the normalization scale bounds
+    if chosen_scale == 'log':
+        # Clip negative or zero-level flux values to prevent logarithmic evaluation errors
+        if cmin <= 0:
+            cmin = 1e-4 if data.max() > 0 else 1e-10
+        norm_scale = LogNorm(vmin=cmin, vmax=cmax)
+    else:
+        norm_scale = Normalize(vmin=cmin, vmax=cmax)
+
+    # Assign labels based on standard physical definitions of the calculated moments
+    if m == 0:
+        cbar_title = f"Integrated Intensity [{header.get('BUNIT', 'Jy/beam.km/s')}]"
+        plot_title = "Moment 0 Map - Total Integrated Gas Flux"
+    elif m == 1:
+        cbar_title = f"Intensity-Weighted Coordinate [{header.get('BUNIT', 'km/s')}]"
+        plot_title = "Moment 1 Map - Velocity Field"
+    elif m == 2:
+        cbar_title = f"Velocity Dispersion [{header.get('BUNIT', 'km/s')}]"
+        plot_title = "Moment 2 Map - Line Width"
+    elif m == 8:
+        cbar_title = f"Peak Intensity [{header.get('BUNIT', 'Jy/beam')}]"
+        plot_title = "Moment 8 Map - Peak Flux Density"
+    else:
+        cbar_title = f"Intensity [{header.get('BUNIT', 'Arbitrary Units')}]"
+        plot_title = f"Moment {m} Map"
+
+    # Display the two-dimensional matrix array
+    im_plot = ax.imshow(data, cmap=cmap, origin='lower', norm=norm_scale)
+    
+    # Define equatorial coordinate formatting labels
+    ax.set_xlabel('Right Ascension (J2000)', fontsize=11)
+    ax.set_ylabel('Declination (J2000)', fontsize=11)
+    ax.tick_params(labelsize=10)
+    ax.coords.grid(color='white', linestyle=':', alpha=0.3)
+
+    # Set spatial subset constraints if a bounding box is specified
+    if zoom_window is not None and len(zoom_window) == 4:
+        ax.set_xlim((zoom_window[0], zoom_window[1]))
+        ax.set_ylim((zoom_window[2], zoom_window[3]))
+
+    # -------------------------------------------------------------------------
+    # 4. TELESCOPE BEAM PATCH OVERLAY PLOT
+    # -------------------------------------------------------------------------
+    if beam:
+        if 'BMAJ' in header and 'BMIN' in header:
+            try:
+                # Convert the major and minor angular axes from degrees to pixel scales
+                pixel_scale = abs(header['CDELT1'])
+                beam_maj_pix = header['BMAJ'] / pixel_scale
+                beam_min_pix = header['BMIN'] / pixel_scale
+                beam_pa = header.get('BPA', 0.0)
+    
+                # Derive anchor positions dynamically for either full-frame or cropped regions
+                if zoom_window is not None:
+                    x_pos = zoom_window[0] + 0.08 * (zoom_window[1] - zoom_window[0])
+                    y_pos = zoom_window[2] + 0.08 * (zoom_window[3] - zoom_window[2])
+                else:
+                    x_pos = 0.08 * data.shape[1]
+                    y_pos = 0.08 * data.shape[0]
+    
+                # Instantiate the spatial resolution clean beam ellipse patch
+                beam_patch = Ellipse(
+                    xy=(x_pos, y_pos),
+                    width=beam_maj_pix,
+                    height=beam_min_pix,
+                    angle=beam_pa + 90, # Map position angle offset to standard Cartesian reference
+                    edgecolor='white',
+                    facecolor='darkgrey',
+                    linewidth=1.0,
+                    alpha=0.85
+                )
+                ax.add_patch(beam_patch)
+                if verbose:
+                    print(f"--> Synthesized Clean Beam overlay injected: bmaj={header['BMAJ']*3600:.3f}\" and bmin={header['BMIN']*3600:.3f}\"")
+            except Exception as e:
+                if verbose:
+                    print(f"--> Skipping beam ellipse patch creation: {e}")
+
+    # Construct and format color bar markers
+    cbar = fig.colorbar(im_plot, ax=ax, pad=0.03, fraction=0.046)
+    cbar.set_label(cbar_title, fontsize=11)
+    cbar.ax.tick_params(labelsize=10)
+    
+    plt.title(plot_title, fontsize=13, pad=15)
+    plt.tight_layout()
+
+    # -------------------------------------------------------------------------
+    # 5. IO FILE EXPORT CONTROL MANAGEMENT
+    # -------------------------------------------------------------------------
+    if save_png:
+        png_out_path = str(image_folder / f"plot_moment{m}.png")
+        plt.savefig(png_out_path, dpi=300, bbox_inches='tight')
+        if verbose: 
+            print(f"[+] Static graphics frame exported successfully to: {png_out_path}")
+            
+    if plot:
+        plt.show()
+    else:
+        plt.close(fig) # De-allocate figure assets from active memory pools
+        
+    # Re-enable standard interactive context routines
+    plt.ion()
