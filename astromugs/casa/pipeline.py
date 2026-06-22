@@ -26,7 +26,6 @@ from contextlib import contextmanager, redirect_stdout, redirect_stderr
 from astropy.io import fits
 from astropy.wcs import WCS
 from matplotlib.patches import Ellipse
-from astropy.visualization import Normalize
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 from reproject import reproject_interp
 from matplotlib.colors import LogNorm, Normalize
