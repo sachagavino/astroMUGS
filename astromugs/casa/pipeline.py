@@ -1443,7 +1443,8 @@ def plot_line_with_continuum_contours(fits_continuum, fits_line,
                                       cont=[30, 50, 70, 90],
                                       cmap="viridis",
                                       zoom_window=None,
-                                      save_png=False):
+                                      save_png=False,
+                                      figsize=(9,8)):
     """
     Plots a 2D line emission map overlayed with spatial contours of dust continuum.
 
@@ -1493,7 +1494,7 @@ def plot_line_with_continuum_contours(fits_continuum, fits_line,
     # Temporarily disable interactive plotting to suppress intermediate canvas rendering in Jupyter notebooks
     plt.ioff() 
 
-    fig = plt.figure(figsize=(9, 8), dpi=100)
+    fig = plt.figure(figsize=figsize, dpi=100)
     ax = fig.add_subplot(1, 1, 1, projection=wcs_line_2d)
 
     # --- Layer 1: Background Line Emission Map ---
