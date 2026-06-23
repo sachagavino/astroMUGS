@@ -29,6 +29,8 @@ from matplotlib.patches import Ellipse
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 from reproject import reproject_interp
 from matplotlib.colors import LogNorm, Normalize
+from matplotlib.lines import Line2D
+from astropy import constants as const
 
 @contextmanager
 def silence(verbose=False):
