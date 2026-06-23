@@ -1435,77 +1435,156 @@ def load_and_plot_image(path, name, main_dict, plot=True, cmap='jet', log=False,
 
 
 
-def plot_line_with_continuum_contours(fits_continuum, fits_line,
-                                      cont=[30, 50, 70, 90],
-                                      cmap="viridis",
-                                      zoom_window=None,
-                                      save_png=False,
-                                      figsize=(9,8)):
+def plot_line_with_multiple_continuum_contours(fits_continuum, fits_line,
+                                               cont=[30, 50, 70, 90],
+                                               cmap="viridis",
+                                               contour_colors=None,
+                                               zoom_window=None,
+                                               save_png=False,
+                                               figsize=(9,8)):
     """
-    Plots a 2D line emission map overlayed with spatial contours of dust continuum.
+    Overlay 2D spatial contours of multi-wavelength dust continuum onto a 2D line emission map.
 
-    This function extracts 2D spatial slices from potentially higher-dimensional 
-    FITS data cubes (e.g., [RA, Dec, Freq, Stokes]), dynamically reprojects the 
-    continuum map onto the pixel grid of the line emission map using Astropy's WCS, 
-    and generates a publication-quality overlay map. It explicitly manages the 
-    Matplotlib lifecycle to prevent duplicate figure rendering in Jupyter notebook 
-    environments.
+    This function extracts 2D celestial slices from input FITS structures (supporting 
+    2D, 3D, or 4D hypercubes), dynamically reprojects the continuum maps onto the target 
+    line emission pixel grid using Astropy's WCS-based interpolation, and generates a 
+    publication-quality multi-layer map. Continuum wavelengths are automatically 
+    parsed from FITS header metadata and converted to micrometers (um) for the legend.
 
-    Args:
-        fits_continuum (str): Path to the FITS file containing the continuum data.
-        fits_line (str): Path to the FITS file containing the line emission data.
-        cont (list of float, optional): Contour levels specified as percentages of 
-            the peak continuum intensity. Defaults to [30, 50, 70, 90].
-        cmap (str, optional): Matplotlib colormap name for the background line 
-            emission intensity map. Defaults to "viridis".
-        zoom_window (tuple or list, optional): Bounding box for spatial cropping 
-            in pixel coordinates, defined as (xmin, xmax, ymin, ymax). 
-            Defaults to None.
-        save_png (bool): If True, plot saved.
-            Defaults to False
+    Parameters
+    ----------
+    fits_continuum : str or list of str
+        Path or list of paths to the FITS file(s) containing the continuum data.
+    fits_line : str
+        Path to the FITS file containing the background line emission map or cube.
+    cont : list of float, optional
+        Contour levels expressed as percentages of the peak intensity for each 
+        continuum map. Defaults to [30, 50, 70, 90].
+    cmap : str, optional
+        Matplotlib colormap name used for the background line emission intensity. 
+        Defaults to "viridis".
+    contour_colors : list of str, optional
+        Custom list of colors for each continuum dataset. If None, a high-contrast 
+        palette dynamically adapted to the background cmap is auto-generated.
+    zoom_window : tuple or list, optional
+        Bounding box for spatial cropping in pixel coordinates, defined as 
+        (xmin, xmax, ymin, ymax). Defaults to None.
+    save_png : bool, optional
+        If True, saves the output figure as 'Line_multi_continuum.png' with 350 DPI. 
+        Defaults to False.
+    figsize : tuple, optional
+        Width and height of the figure in inches. Defaults to (9, 8).
 
-    Returns:
-        None (displays the generated matplotlib figure directly).
+    Returns
+    -------
+    None
+        Displays the finalized matplotlib figure directly and handles memory cleanup.
     """
-    # 1. Open FITS datasets and extract 2D celestial matrices
-    with fits.open(fits_continuum) as hdul_cont:
-        raw_cont = hdul_cont[0].data
-        header_cont = hdul_cont[0].header
-        # Handle 4D (Stokes, Freq, Dec, RA) or 3D (Freq, Dec, RA) data cubes safely
-        data_cont_2d = raw_cont[0, 0, :, :] if raw_cont.ndim == 4 else (raw_cont[0, :, :] if raw_cont.ndim == 3 else raw_cont)
-        wcs_cont_2d = WCS(header_cont).celestial
+
+    def extract_wavelength_in_micron(header, filename):
+        """Extract spectral metadata and convert to micrometers (um)."""
+        c_speed = const.c.value  # Speed of light in m/s
+    
+        # 1. Parse via RESTFRQ header keyword (Radio/Sub-mm)
+        if 'RESTFRQ' in header and header['RESTFRQ'] > 0:
+            freq_hz = header['RESTFRQ']
+            wave_micron = (c_speed / freq_hz) * 1e6
+            return f"{wave_micron:.1f} µm"
         
+        # 2. Parse via WCS spectral axis structures
+        for i in range(1, header.get('NAXIS', 0) + 1):
+            ctype = header.get(f'CTYPE{i}', '')
+            
+            # Case A: Frequency axis -> Convert to um
+            if 'FREQ' in ctype:
+                freq_hz = header.get(f'CRVAL{i}', 0)
+                if freq_hz > 0:
+                    wave_micron = (c_speed / freq_hz) * 1e6
+                    return f"{wave_micron:.1f} µm"
+                    
+            # Case B: Wavelength axis -> Convert to um based on CUNIT
+            elif 'WAVE' in ctype:
+                wave_val = header.get(f'CRVAL{i}', 0)
+                cunit = header.get(f'CUNIT{i}', 'm').strip().lower()
+                
+                if wave_val > 0:
+                    if cunit in ['m', 'meter', 'meters']:
+                        wave_micron = wave_val * 1e6
+                    elif cunit in ['mm', 'millimeter', 'millimeters']:
+                        wave_micron = wave_val * 1e3
+                    elif cunit in ['um', 'micron', 'microns', 'µm']:
+                        wave_micron = wave_val
+                    elif cunit in ['nm', 'nanometer', 'nanometers']:
+                        wave_micron = wave_val / 1e3
+                    elif cunit in ['angstrom', 'angstroms', 'a']:
+                        wave_micron = wave_val / 1e4
+                    else:
+                        return f"{wave_val} {cunit}"
+                        
+                    return f"{wave_micron:.1f} µm"
+                
+        # 3. Fallback to sanitized filename if no spectral metadata is found
+        return os.path.basename(filename).replace('.fits', '')
+
+    # Standardize input to a list of paths
+    if isinstance(fits_continuum, str):
+        fits_continuum = [fits_continuum]
+
+    # 1. Load background line data and extract 2D celestial plane
     with fits.open(fits_line) as hdul_line:
         raw_line = hdul_line[0].data
         header_line = hdul_line[0].header
         data_line_2d = raw_line[0, 0, :, :] if raw_line.ndim == 4 else (raw_line[0, :, :] if raw_line.ndim == 3 else raw_line)
         wcs_line_2d = WCS(header_line).celestial
 
-    # 2. Dynamic WCS projection alignment
-    # Reproject the continuum image onto the target frame defined by the line emission map
-    cont_hdu_2d = fits.PrimaryHDU(data=data_cont_2d, header=wcs_cont_2d.to_header())
-    data_cont_reprojected, _ = reproject_interp(cont_hdu_2d, wcs_line_2d, shape_out=data_line_2d.shape)
-
-    # 3. Canvas initialization and interactive mode management
-    # Temporarily disable interactive plotting to suppress intermediate canvas rendering in Jupyter notebooks
+    # 2. Canvas initialization and interactive mode management
     plt.ioff() 
-
     fig = plt.figure(figsize=figsize, dpi=100)
     ax = fig.add_subplot(1, 1, 1, projection=wcs_line_2d)
 
     # --- Layer 1: Background Line Emission Map ---
-    # Apply standard clipping threshold at 1% of the peak flux to filter low-level background noise
-    vmin_line = 0.01 * np.nanmax(data_line_2d)
+    vmin_line = 0.01 * np.nanmax(data_line_2d)  # 1% peak thresholding
     norm_line = Normalize(vmin=vmin_line, vmax=np.nanmax(data_line_2d))
     im_line = ax.imshow(data_line_2d, cmap=cmap, origin='lower', norm=norm_line)
 
-    # --- Layer 2: Overlayed Continuum Contours ---
-    # Scale contour levels relative to the peak flux density of the reprojected continuum map
-    max_cont = np.nanmax(data_cont_reprojected)
-    levels = [max_cont * c/100 for c in cont]
-    ax.contour(data_cont_reprojected, levels=levels, colors='white', linewidths=1.2, alpha=0.9)
+    # --- Color Palette Optimization for Contours ---
+    default_palette = ['white', 'cyan', 'magenta', 'yellow', 'lime', 'orange', 'red']
+    if cmap in ['gray_r', 'Blues', 'Purples']:  # Switch to dark palette for light backgrounds
+        default_palette = ['black', 'red', 'darkblue', 'darkmagenta', 'green']
 
-    # 4. Spatial cropping, coordinate formatting, and annotations
+    if contour_colors is None:
+        contour_colors = [default_palette[i % len(default_palette)] for i in range(len(fits_continuum))]
+    elif isinstance(contour_colors, str):
+        contour_colors = [contour_colors] * len(fits_continuum)
+
+    # --- Layer 2: Sequential Continuum Contour Overlay ---
+    legend_info = []
+    
+    for idx, f_cont in enumerate(fits_continuum):
+        with fits.open(f_cont) as hdul_cont:
+            raw_cont = hdul_cont[0].data
+            header_cont = hdul_cont[0].header
+            data_cont_2d = raw_cont[0, 0, :, :] if raw_cont.ndim == 4 else (raw_cont[0, :, :] if raw_cont.ndim == 3 else raw_cont)
+            wcs_cont_2d = WCS(header_cont).celestial
+            
+            # Extract target wavelength for the map legend
+            label_spec = extract_wavelength_in_micron(header_cont, f_cont)
+        
+        # Reproject continuum dataset onto the target line WCS frame
+        cont_hdu_2d = fits.PrimaryHDU(data=data_cont_2d, header=wcs_cont_2d.to_header())
+        data_cont_reprojected, _ = reproject_interp(cont_hdu_2d, wcs_line_2d, shape_out=data_line_2d.shape)
+        
+        # Calculate absolute flux levels based on input percentages
+        max_cont = np.nanmax(data_cont_reprojected)
+        levels = [max_cont * c/100 for c in cont]
+        
+        color = contour_colors[idx]
+        
+        # Plot spatial contours
+        ax.contour(data_cont_reprojected, levels=levels, colors=color, linewidths=1.2, alpha=0.9)
+        legend_info.append((color, label_spec))
+
+    # 4. Coordinate formatting and spatial cropping
     if zoom_window is not None and len(zoom_window) == 4:
         ax.set_xlim((zoom_window[0], zoom_window[1]))
         ax.set_ylim((zoom_window[2], zoom_window[3]))
@@ -1514,21 +1593,32 @@ def plot_line_with_continuum_contours(fits_continuum, fits_line,
     ax.set_ylabel('Declination (J2000)', fontsize=11)
     ax.coords.grid(color='white', linestyle=':', alpha=0.1)
 
-    # 5. Colorbar generation and intensity scaling
+    # 5. Colorbar and Legend Generation
     divider = make_axes_locatable(ax)
     cax = divider.append_axes("right", size="3%", pad=0.1, axes_class=plt.Axes)
     cbar = fig.colorbar(im_line, cax=cax)
     cbar.set_label(f"Line Emission [{header_line.get('BUNIT', 'Jy/beam.km/s')}]", fontsize=10)
 
-    plt.title(f"Line Emission & Continuum Contours (White: {', '.join(str(x)+'%' for x in cont)})", fontsize=11, pad=20)
+    # Configure multi-wavelength legend with white title
+    custom_lines = [Line2D([0], [0], color=c, lw=1.5) for c, _ in legend_info]
+    leg = ax.legend(custom_lines, [name for _, name in legend_info], loc='upper right', 
+                    framealpha=0.6, facecolor='black', labelcolor='white', title="Continuum", fontsize=9)
+    leg.get_title().set_color('white')
+
+    # Configure dynamic main title containing contour percentages
+    levels_str = ", ".join([f"{x}%" for x in cont])
+    ax.set_title(f"Line Emission & Multi-λ Contours\n(Levels: {levels_str} of peak)", fontsize=11, pad=20)
+    
     plt.tight_layout()
 
-    if save_png: plt.savefig("Line_continuum.png",dpi=350)
+    # Save figure asset
+    if save_png: 
+        plt.savefig("Line_multi_continuum.png", dpi=350)
     
-    # 6. Explicit figure rendering and clean-up
-    plt.ion()       # Restore standard interactive framework behavior
-    plt.show()      # Render the finalized figure explicitly 
-    plt.close(fig)  # Free canvas resources to prevent ghost axis leaks in memory
+    # 6. Explicit rendering and resource deallocation
+    plt.ion()       
+    plt.show()      
+    plt.close(fig)
 
 
 def moment_map(image_folder,
