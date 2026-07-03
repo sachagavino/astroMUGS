@@ -135,7 +135,7 @@ def check_and_select_transition(parsed_results, molecule, target_freq_ghz, epsil
     
     # Check if the molecule exists in your parsed data
     if mol_key not in parsed_results or not parsed_results[mol_key]:
-        print(parsed_results[mol_key])
+        # print(parsed_results[mol_key])
         print(f"[-] No transitions found for '{molecule}' in your local molecule_*.inp files.")
         return None
         
