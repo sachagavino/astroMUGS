@@ -272,7 +272,7 @@ def gas_velocity(star_mass, r, theta, phi, object="disk", thermpath='thermal/'):
 
     Computes the Keplerian azimuthal velocity at each grid cell and writes
     it in the spherical-coordinate velocity format expected by RADMC-3D:
-    ``(v_r, v_theta, v_phi)`` in cm s\ :sup:`-1`. For a Keplerian disk
+    ``(v_r, v_theta, v_phi)`` in cm s :sup:`-1`. For a Keplerian disk
     ``v_r = v_theta = 0`` and ``v_phi = sqrt(G M_star / R_cyl)`` where
     ``R_cyl = r sin(theta)`` is the cylindrical radius.
 
