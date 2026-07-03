@@ -4812,414 +4812,251 @@ def plot_gas_fraction_map(chempath,
     plt.show()
 
 
-import os
-import numpy as np
-import pandas as pd
-import matplotlib.pyplot as plt
-from matplotlib.colors import LogNorm, Normalize
-from pathlib import Path
+import os 
+import numpy as np 
+import pandas as pd 
+import matplotlib.pyplot as plt 
+from matplotlib.colors import LogNorm, Normalize 
+from pathlib import Path 
 
-def density2D_grid_comparison(PIPE,
-                              MODEL_NAMES,
-                              vmin=1e-30,
-                              vmax=1e-15,
-                              cmap='gnuplot2',
-                              res_colormap='seismic',
-                              dens_type='mass',
-                              xlim=None,
-                              ylim=None,
-                              dust=None,
-                              figsize=(14, 16)):
-    r"""
-    Plots and compares 2D poloidal gas/dust density grids (R, Z) across multiple 
-    simulation models, dynamically mapping dust size bins and total accumulations.
-    Optimized layout to avoid text overlapping and subplot squashing.
-    """
-    # Prevent layout collisions by generating generic fallback names if duplicates exist
-    if len(MODEL_NAMES) != len(set(MODEL_NAMES)):
-        MODEL_NAMES = [f"Model {i+1}" for i in range(len(PIPE))]
+def density2D_grid_comparison(PIPE, 
+                             MODEL_NAMES, 
+                             vmin=1e-30, 
+                             vmax=1e-15, 
+                             cmap='gnuplot2', 
+                             res_colormap='seismic', 
+                             dens_type='mass', 
+                             xlim=None, 
+                             ylim=None, 
+                             dust=None, 
+                             select_bins=None,  
+                             figsize=(14, 16)): 
+    r""" 
+    Plots and compares 2D poloidal gas/dust density grids (R, Z) across multiple  
+    simulation models, dynamically mapping dust size bins and total accumulations. 
+    """ 
+    # Prevent layout collisions by generating generic fallback names if duplicates exist 
+    if len(MODEL_NAMES) != len(set(MODEL_NAMES)): 
+        MODEL_NAMES = [f"Model {i+1}" for i in range(len(PIPE))] 
 
-    autocm = 1.495978707e13  # Astronomical Unit converted to centimeters
-    model_structures = {}
+    autocm = 1.495978707e13  # Astronomical Unit converted to centimeters 
+    model_structures = {} 
 
-    # --- 1. CORE EXTRACTION ENGINE CROSS PIPELINES ---
-    for p_idx, p in enumerate(PIPE):
-        p_name = getattr(p, 'name', MODEL_NAMES[p_idx])
-        base_path = str(Path(p.thermalpath)) + '/'
-        
-        # Load and parse spatial grid configurations
-        grid_file = base_path + 'amr_grid.inp'
-        if not os.path.exists(grid_file):
-            print(f"[{p_name}] Missing critical amr grid file: {grid_file}. Skipping.")
-            continue
-            
-        grid = pd.read_table(grid_file, engine='python', skiprows=5)
-        nr = int(grid.columns[0].split()[0])
-        nt = int(grid.columns[0].split()[1])
-        grid_vals = grid[grid.columns[0]].values
+    # --- 1. CORE EXTRACTION ENGINE CROSS PIPELINES --- 
+    for p_idx, p in enumerate(PIPE): 
+        p_name = getattr(p, 'name', MODEL_NAMES[p_idx]) 
+        base_path = str(Path(p.thermalpath)) + '/' 
+         
+        # Load and parse spatial grid configurations 
+        grid_file = base_path + 'amr_grid.inp' 
+        if not os.path.exists(grid_file): 
+            print(f"[{p_name}] Missing critical amr grid file: {grid_file}. Skipping.") 
+            continue 
+             
+        grid = pd.read_table(grid_file, engine='python', skiprows=5) 
+        nr = int(grid.columns[0].split()[0]) 
+        nt = int(grid.columns[0].split()[1]) 
+        grid_vals = grid[grid.columns[0]].values 
 
-        # Load and parse simulation density profiles
-        dens_file = base_path + 'dust_density.inp'
-        if not os.path.exists(dens_file):
-            print(f"[{p_name}] Missing dust density dataset file: {dens_file}. Skipping.")
-            continue
-            
-        dens = pd.read_table(dens_file, engine='python', header=None, skiprows=3)
-        dens_vals = dens[0].values
-        nspecies = int(len(dens_vals) / (nr * nt))
-        dens_reshaped = np.reshape(dens_vals, (nspecies, nt, nr))
+        # Load and parse simulation density profiles 
+        dens_file = base_path + 'dust_density.inp' 
+        if not os.path.exists(dens_file): 
+            print(f"[{p_name}] Missing dust density dataset file: {dens_file}. Skipping.") 
+            continue 
+             
+        dens = pd.read_table(dens_file, engine='python', header=None, skiprows=3) 
+        dens_vals = dens[0].values 
+        nspecies = int(len(dens_vals) / (nr * nt)) 
+        dens_reshaped = np.reshape(dens_vals, (nspecies, nt, nr)) 
 
-        # Reconstruct 2D cylindrical coordinates mapping mesh (Radius, Altitude)
-        r_edge = grid_vals[:nr+1] / autocm
-        theta_edge = grid_vals[nr+1:nr+1+nt+1].copy() 
-        theta_edge[-1] = np.pi
-        rr_edge, tt_edge = np.meshgrid(r_edge, theta_edge)
-        R = rr_edge * np.sin(tt_edge)
-        Z = rr_edge * np.cos(tt_edge)
-        
-        # Sanitize zero values to protect log-scale normalization structures
-        dens_clean = np.array(dens_reshaped, copy=True)
-        dens_clean[dens_clean <= 1e-100] = 1e-100
+        # Reconstruct 2D cylindrical coordinates mapping mesh (Radius, Altitude) 
+        r_edge = grid_vals[:nr+1] / autocm 
+        theta_edge = grid_vals[nr+1:nr+1+nt+1].copy()  
+        theta_edge[-1] = np.pi 
+        rr_edge, tt_edge = np.meshgrid(r_edge, theta_edge) 
+        R = rr_edge * np.sin(tt_edge) 
+        Z = rr_edge * np.cos(tt_edge) 
+         
+        # Sanitize zero values to protect log-scale normalization structures 
+        dens_clean = np.array(dens_reshaped, copy=True) 
+        dens_clean[dens_clean <= 1e-100] = 1e-100 
 
-        # Retrieve optional physical grain sizes arrays definitions
-        sizes_file = base_path + 'dust_sizes.inp'
-        grain_mass = None
-        if os.path.isfile(sizes_file):
-            sizes = np.loadtxt(sizes_file)
-            sizes = np.atleast_1d(sizes)
-        elif dust is not None:
-            sizes = dust.sizes()[0]
-            grain_mass = dust.grainmass()
-        else:
-            sizes = None
+        # Retrieve optional physical grain sizes arrays definitions 
+        sizes_file = base_path + 'dust_sizes.inp' 
+        grain_mass = None 
+        if os.path.isfile(sizes_file): 
+            sizes = np.loadtxt(sizes_file) 
+            sizes = np.atleast_1d(sizes) 
+        elif dust is not None: 
+            sizes = dust.sizes()[0] 
+            grain_mass = dust.grainmass() 
+        else: 
+            sizes = None 
+            print(f"⚠️ [{p_name}] WARNING: No dust size source found (checked '{sizes_file}' and 'dust' argument).") 
 
-        model_structures[p_name] = {
-            'R': R, 'Z': Z, 'dens': dens_clean,
-            'sizes': sizes, 'grain_mass': grain_mass,
-            'nspecies': nspecies, 'nr': nr, 'nt': nt
-        }
+        # --- BIN SELECTION FILTER --- 
+        if select_bins is not None: 
+            # Guard constraint to prevent out-of-bounds indexing errors 
+            valid_bins = [b for b in select_bins if b < nspecies] 
+            dens_clean = dens_clean[valid_bins] 
+            if sizes is not None: 
+                sizes = sizes[valid_bins] 
+            if grain_mass is not None: 
+                grain_mass = grain_mass[valid_bins] 
+            nspecies_to_display = len(valid_bins) 
+        else: 
+            nspecies_to_display = nspecies 
+            valid_bins = list(range(nspecies)) 
 
-    if not model_structures:
-        print("No simulation pipelines successfully parsed.")
-        return
+        model_structures[p_name] = { 
+            'R': R, 'Z': Z, 'dens': dens_clean, 
+            'sizes': sizes, 'grain_mass': grain_mass, 
+            'nspecies_display': nspecies_to_display,  
+            'original_bins': valid_bins, 
+            'nr': nr, 'nt': nt 
+        } 
 
-    # --- 2. CANVAS GEOMETRY CONFIGURATION ---
-    num_models = len(model_structures)
-    model_names = list(model_structures.keys())
-    nspecies_ref = model_structures[model_names[0]]['nspecies']
-    props = dict(boxstyle='round', facecolor='wheat', alpha=0.5)
+    if not model_structures: 
+        print("No simulation pipelines successfully parsed.") 
+        return 
 
-    if num_models == 1:
-        npanels = nspecies_ref + 1
-        ncols = min(nspecies_ref, 4)
-        nrows = int(np.ceil(npanels / ncols))
-        fig, axes = plt.subplots(nrows, ncols, figsize=figsize, sharex=True, sharey=True)
-        axes = np.atleast_2d(axes)
-        cbar_main_ax = fig.add_axes([0.91, 0.15, 0.02, 0.7])
-    else:
-        nrows = nspecies_ref + 1 
-        cols = 3 if num_models == 2 else num_models
-        fig, axes = plt.subplots(nrows, cols, figsize=figsize, sharex=True, sharey=True)
-        axes = np.atleast_2d(axes)
-        
-        if num_models == 2:
-            cbar_main_ax = fig.add_axes([0.91, 0.55, 0.015, 0.35])
-            cbar_res_ax  = fig.add_axes([0.91, 0.15, 0.015, 0.35])
-        else:
-            cbar_main_ax = fig.add_axes([0.91, 0.15, 0.015, 0.7])
+    # --- 2. CANVAS GEOMETRY CONFIGURATION --- 
+    num_models = len(model_structures) 
+    model_names = list(model_structures.keys()) 
+     
+    nspecies_ref = model_structures[model_names[0]]['nspecies_display'] 
+    original_bins_ref = model_structures[model_names[0]]['original_bins'] 
 
-    # --- 3. RENDERING ENGINE LOOP ---
-    im, im_res = None, None
-    label_text = ""
+    if num_models == 1: 
+        npanels = nspecies_ref + 1 
+        ncols = min(nspecies_ref, 4) 
+        nrows = int(np.ceil(npanels / ncols)) 
+        fig, axes = plt.subplots(nrows, ncols, figsize=figsize, sharex=True, sharey=True) 
+        axes = np.atleast_2d(axes) 
+        cbar_main_ax = fig.add_axes([0.91, 0.15, 0.02, 0.7]) 
+    else: 
+        nrows = nspecies_ref + 1  
+        cols = 3 if num_models == 2 else num_models 
+        fig, axes = plt.subplots(nrows, cols, figsize=figsize, sharex=True, sharey=True) 
+        axes = np.atleast_2d(axes) 
+         
+        if num_models == 2: 
+            cbar_main_ax = fig.add_axes([0.91, 0.55, 0.015, 0.35]) 
+            cbar_res_ax  = fig.add_axes([0.91, 0.15, 0.015, 0.35]) 
+        else: 
+            cbar_main_ax = fig.add_axes([0.91, 0.15, 0.015, 0.7]) 
 
-    for row_idx in range(nspecies_ref + 1):
-        for col_idx, p_name in enumerate(model_names):
-            ax = axes[row_idx, col_idx] if num_models > 1 else axes.flat[row_idx]
-            struct = model_structures[p_name]
-            R, Z = struct['R'], struct['Z']
-            sizes, grain_mass = struct['sizes'], struct['grain_mass']
-            
-            # Map specific grain sizes bins or total calculated matrix sums
-            if row_idx < nspecies_ref:
-                data_matrix = struct['dens'][row_idx]
-                title_string = f"bin {row_idx + 1}"
-                
-                if dens_type == 'number' and grain_mass is not None:
-                    plot_data = data_matrix / grain_mass[row_idx]
-                    label_text = r'n$_\mathrm{d}$ [cm$^{-3}$]'
-                elif dens_type == 'surface' and grain_mass is not None and sizes is not None:
-                    plot_data = 4 * np.pi * (sizes[row_idx] * 1e-4)**2 * data_matrix / grain_mass[row_idx]
-                    label_text = r'surfaces [cm$^{-1}$]'
-                else:
-                    plot_data = data_matrix
-                    label_text = r'$\rho_\mathrm{d}$ [g cm$^{-3}$]'
-            else:
-                plot_data = struct['dens'].sum(axis=0)
-                title_string = "total mass"
-                label_text = r'$\rho_\mathrm{d}$ [g cm$^{-3}$]'
+    # --- 3. RENDERING ENGINE LOOP --- 
+    im, im_res = None, None 
+    label_text = "" 
 
-            # Render current 2D colormesh panel
-            im = ax.pcolormesh(R, Z, plot_data, cmap=cmap, shading='auto', norm=LogNorm(vmin=vmin, vmax=vmax))
-            ax.set_title(title_string, fontsize=11)
-            
-            # Label model columns headers along the upper row layout border
-            if num_models > 1 and row_idx == 0:
-                ax.text(0.5, 1.25, p_name, transform=ax.transAxes, fontsize=12, 
-                        fontweight='bold', ha='center', va='bottom')
-            
-            # Annotate particle dimensions labels safely inside a text bounding box
-            if row_idx < nspecies_ref and sizes is not None and row_idx < len(sizes):
-                s = sizes[row_idx]
-                size_label = f'{s/1e3:.1f} mm' if s >= 1e3 else f'{s:.2f} ' + r'$\mu$m'
-                ax.text(0.05, 0.85, size_label, transform=ax.transAxes, fontsize=9, verticalalignment='top', bbox=props)
+    for row_idx in range(nspecies_ref + 1): 
+        for col_idx, p_name in enumerate(model_names): 
+            ax = axes[row_idx, col_idx] if num_models > 1 else axes.flat[row_idx] 
+            struct = model_structures[p_name] 
+            R, Z = struct['R'], struct['Z'] 
+            sizes, grain_mass = struct['sizes'], struct['grain_mass'] 
+             
+            # Map specific grain sizes bins or total calculated matrix sums 
+            if row_idx < nspecies_ref: 
+                data_matrix = struct['dens'][row_idx] 
+                actual_bin_num = original_bins_ref[row_idx] + 1 
+                 
+                # --- SUBPLOT TITLE GENERATION WITH PHYSICAL SIZE --- 
+                if sizes is not None and row_idx < len(sizes): 
+                    s = sizes[row_idx] 
+                    size_str = f'{s/1e3:.1f} mm' if s >= 1e3 else f'{s:.2f} µm' 
+                    title_string = f"bin {actual_bin_num} ({size_str})" 
+                else: 
+                    title_string = f"bin {actual_bin_num}" 
+                 
+                if dens_type == 'number' and grain_mass is not None: 
+                    plot_data = data_matrix / grain_mass[row_idx] 
+                    label_text = r'n$_\mathrm{d}$ [cm$^{-3}$]' 
+                elif dens_type == 'surface' and grain_mass is not None and sizes is not None: 
+                    plot_data = 4 * np.pi * (sizes[row_idx] * 1e-4)**2 * data_matrix / grain_mass[row_idx] 
+                    label_text = r'surfaces [cm$^{-1}$]' 
+                else: 
+                    plot_data = data_matrix 
+                    label_text = r'$\rho_\mathrm{d}$ [g cm$^{-3}$]' 
+                    dens_type = 'mass' 
+                     
+            else: 
+                plot_data = struct['dens'].sum(axis=0) 
+                title_string = f"Total {dens_type}" 
+                label_text = r'$\rho_\mathrm{d}$ [g cm$^{-3}$]' 
 
-        # 4. Residuals Scenarios (Triggered only when exactly 2 models are present)
-        if num_models == 2:
-            ax_res = axes[row_idx, 2]
-            s1, s2 = model_structures[model_names[0]], model_structures[model_names[1]]
-            
-            if row_idx < nspecies_ref:
-                d1 = s1['dens'][row_idx]
-                d2 = s2['dens'][row_idx]
-                res_title = f"Residuals bin {row_idx+1}"
-            else:
-                d1 = s1['dens'].sum(axis=0)
-                d2 = s2['dens'].sum(axis=0)
-                res_title = "Residuals total"
+            # Render current 2D colormesh panel 
+            im = ax.pcolormesh(R, Z, plot_data, cmap=cmap, shading='auto', norm=LogNorm(vmin=vmin, vmax=vmax)) 
+            ax.set_title(title_string, fontsize=11) 
+             
+            # Label model columns headers along the upper row layout border 
+            if num_models > 1 and row_idx == 0: 
+                ax.text(0.5, 1.25, p_name, transform=ax.transAxes, fontsize=12,  
+                        fontweight='bold', ha='center', va='bottom') 
 
-            # Compute linear discrepancy profile differences matrix
-            res_data = d1 - d2
-            max_diff = max(abs(res_data.min()), abs(res_data.max()))
-            if max_diff == 0: max_diff = 1.0
-            
-            im_res = ax_res.pcolormesh(s1['R'], s1['Z'], res_data, cmap=res_colormap, shading='auto',
-                                       norm=Normalize(vmin=-max_diff, vmax=max_diff))
-            ax_res.set_title(res_title, fontsize=10, fontweight='bold')
-            
-            if row_idx == 0:
-                ax_res.text(0.5, 1.25, f"Diff\n({model_names[0]} - {model_names[1]})", transform=ax_res.transAxes, 
-                            fontsize=11, fontweight='bold', ha='center', va='bottom')
+        # 4. Residuals Scenarios (Triggered only when exactly 2 models are present) 
+        if num_models == 2: 
+            ax_res = axes[row_idx, 2] 
+            s1, s2 = model_structures[model_names[0]], model_structures[model_names[1]] 
+             
+            if row_idx < nspecies_ref: 
+                d1 = s1['dens'][row_idx] 
+                d2 = s2['dens'][row_idx] 
+                actual_bin_num = original_bins_ref[row_idx] + 1 
+                 
+                # Apply size mappings to the residuals axis subplot titles if available 
+                if s1['sizes'] is not None and row_idx < len(s1['sizes']): 
+                    s = s1['sizes'][row_idx] 
+                    size_str = f'{s/1e3:.1f} mm' if s >= 1e3 else f'{s:.2f} µm' 
+                    res_title = f"Residuals bin {actual_bin_num} ({size_str})" 
+                else: 
+                    res_title = f"Residuals bin {actual_bin_num}" 
+            else: 
+                d1 = s1['dens'].sum(axis=0) 
+                d2 = s2['dens'].sum(axis=0) 
+                res_title = "Residuals total" 
 
-    # --- 4. COLORBARS & SPACING TUNING ---
-    fig.colorbar(im, cax=cbar_main_ax, label=label_text)
-    if num_models == 2 and im_res is not None:
-        fig.colorbar(im_res, cax=cbar_res_ax, label="Linear Discrepancy Map ($M_1 - M_2$)")
+            # Compute linear discrepancy profile differences matrix 
+            res_data = d1 - d2 
+            max_diff = max(abs(res_data.min()), abs(res_data.max())) 
+            if max_diff == 0: max_diff = 1.0 
+             
+            im_res = ax_res.pcolormesh(s1['R'], s1['Z'], res_data, cmap=res_colormap, shading='auto', 
+                                       norm=Normalize(vmin=-max_diff, vmax=max_diff)) 
+            ax_res.set_title(res_title, fontsize=10, fontweight='bold') 
+             
+            if row_idx == 0: 
+                ax_res.text(0.5, 1.25, f"Diff\n({model_names[0]} - {model_names[1]})", transform=ax_res.transAxes,  
+                            fontsize=11, fontweight='bold', ha='center', va='bottom') 
 
-    # Prune unassigned subplot windows in single model configurations
-    if num_models == 1:
-        for idx in range(npanels, nrows * ncols):
-            fig.delaxes(axes.flat[idx])
+    # --- 4. COLORBARS & SPACING TUNING --- 
+    fig.colorbar(im, cax=cbar_main_ax, label=label_text) 
+    if num_models == 2 and im_res is not None: 
+        fig.colorbar(im_res, cax=cbar_res_ax, label="Linear Discrepancy Map ($M_1 - M_2$)") 
 
-    # Enforce global formatting boundaries limits and structural grids
-    for ax in axes.flat:
-        if not ax.get_visible(): continue
-        if xlim: ax.set_xlim(xlim)
-        if ylim: ax.set_ylim(ylim)
-        ax.grid(True, linestyle=":", alpha=0.3)
-        
-    for ax in axes[-1, :]:
-        if ax.get_visible(): ax.set_xlabel('r [au]', fontsize=12)
-    for ax in axes[:, 0]:
-        if ax.get_visible(): ax.set_ylabel('z [au]', fontsize=12)
+    # Prune unassigned subplot windows in single model configurations 
+    if num_models == 1: 
+        for idx in range(npanels, nrows * ncols): 
+            fig.delaxes(axes.flat[idx]) 
 
-    # Adjust vertical hspace to prevent subtitle text overlap collisions across multi-row matrix meshes
-    fig.subplots_adjust(right=0.88, left=0.08, bottom=0.06, top=0.92, hspace=0.40, wspace=0.15)
+    # Enforce global formatting boundaries limits and structural grids 
+    for ax in axes.flat: 
+        if not ax.get_visible(): continue 
+        if xlim: ax.set_xlim(xlim) 
+        if ylim: ax.set_ylim(ylim) 
+        ax.grid(True, linestyle=":", alpha=0.3) 
+         
+    for ax in axes[-1, :]: 
+        if ax.get_visible(): ax.set_xlabel('r [au]', fontsize=12) 
+    for ax in axes[:, 0]: 
+        if ax.get_visible(): ax.set_ylabel('z [au]', fontsize=12) 
+
+    # Adjust vertical hspace to prevent subtitle text overlap collisions across multi-row matrix meshes 
+    fig.subplots_adjust(right=0.88, left=0.08, bottom=0.06, top=0.92, hspace=0.40, wspace=0.15) 
 
     plt.show()
 
-
-import os
-import numpy as np
-import pandas as pd
-import matplotlib.pyplot as plt
-from pathlib import Path
-
-def plot_density1D_midplane_comparison(PIPE,
-                                      MODEL_NAMES,
-                                      vmin=1e-30,
-                                      vmax=1e-15,
-                                      dens_type='mass',
-                                      xlim=None,
-                                      dust=None,
-                                      figsize=(12, 8),
-                                      colormap='tab10'):
-    r"""
-    Plots and compares 1D midplane (z=0) radial dust density profiles 
-    across multiple simulation models on a single combined figure.
-    Forces legends on every single active subplot.
-
-    Parameters:
-    -----------
-    PIPE : list
-        Collection of model pipe objects to analyze. Each object must feature 
-        a `.chempath` attribute pointing to its RADMC-3D files.
-    MODEL_NAMES : list of str
-        Display names assigned to the models for plot headers and legend entries.
-    vmin, vmax : float
-        Limits for the Y-axis (density).
-    dens_type : {'mass', 'number', 'surface'}
-        Type of density to plot: 'mass' (g/cm^3), 'number' (cm^-3), or 'surface' (cm^-1).
-    xlim : tuple/list, optional
-        Limits for the X-axis (radius in au).
-    dust : object, optional
-        External dust object carrying fallback .rho_m, .sizes(), and .grainmass() parameters.
-    figsize : tuple
-        Size of the output matplotlib figure.
-    colormap : str
-        Matplotlib qualitative colormap used to split distinct colors across models.
-    """
-    # Force generic fallback names if duplicate entries are found in MODEL_NAMES
-    if len(MODEL_NAMES) != len(set(MODEL_NAMES)):
-        MODEL_NAMES = [f"Model {i+1}" for i in range(len(PIPE))]
-
-    autocm = 1.495978707e13  # 1 au converted to centimeters
-    model_data = {}
-    max_bins = 0
-    global_sizes = None
-
-    # --- 1. DATA EXTRACTION ENGINE ---
-    for p_idx, p in enumerate(PIPE):
-        p_name = getattr(p, 'name', MODEL_NAMES[p_idx])
-        base_path = str(Path(p.thermalpath)) + '/'
-        
-        if not os.path.exists(base_path + 'amr_grid.inp') or not os.path.exists(base_path + 'dust_density.inp'):
-            print(f"[{p_name}] Missing grid or density files. Skipping.")
-            continue
-
-        # Read RADMC-3D spatial layout mesh definitions
-        grid = pd.read_table(base_path + 'amr_grid.inp', engine='python', skiprows=5)
-        nr = int(grid.columns[0].split()[0])
-        nt = int(grid.columns[0].split()[1])
-        grid_vals = np.array(grid[grid.columns[0]].values, copy=True)
-        
-        # Read multidimensional structural density matrix
-        dens = pd.read_table(base_path + 'dust_density.inp', engine='python', header=None, skiprows=3)
-        dens_vals = dens[0].values
-        nspecies = int(len(dens_vals) / (nr * nt))
-        dens_reshaped = np.reshape(dens_vals, (nspecies, nt, nr))
-
-        # Reconstruct radial coordinates and isolate midplane indexing sequence
-        r_edge = grid_vals[:nr+1] / autocm
-        r_center = 0.5 * (r_edge[:-1] + r_edge[1:])
-        idx_midplane = nt // 2 
-
-        # Extract size bins metadata boundaries configurations
-        sizes_file = base_path + 'dust_sizes.inp'
-        grain_mass = None
-        if os.path.isfile(sizes_file):
-            sizes = np.loadtxt(sizes_file)
-            sizes = np.atleast_1d(sizes)
-        elif dust is not None:
-            sizes = dust.sizes()[0]
-            grain_mass = dust.grainmass()
-        else:
-            sizes = None
-
-        if global_sizes is None and sizes is not None:
-            global_sizes = sizes
-        max_bins = max(max_bins, nspecies)
-
-        model_data[p_name] = {
-            'r_center': r_center,
-            'dens': dens_reshaped,
-            'idx_midplane': idx_midplane,
-            'grain_mass': grain_mass,
-            'nspecies': nspecies
-        }
-
-    if not model_data:
-        print("No simulation paths successfully parsed.")
-        return
-
-    # --- 2. CANVAS GEOMETRY LAYOUT ---
-    npanels = max_bins + 1
-    ncols = min(npanels, 3)
-    nrows = int(np.ceil(npanels / ncols))
-
-    fig, axes = plt.subplots(nrows, ncols, figsize=figsize, sharex=True, sharey=True)
-    axes = np.atleast_2d(axes)
-
-    # Distribute qualitative colors and linestyles to separate models visually
-    colors = plt.colormaps[colormap](np.linspace(0, 0.9, len(PIPE)))
-    linestyle_pool = ['-', '--', ':', '-.']
-
-    # Dynamically select appropriate vertical axis string label unit markers
-    if dens_type == 'number':
-        ylabel = r'$n_\mathrm{d}$ [cm$^{-3}$]'
-    elif dens_type == 'surface':
-        ylabel = r'Surfaces [cm$^{-1}$]'
-    else:
-        ylabel = r'$\rho_\mathrm{d}$ [g cm$^{-3}$]'
-
-    props = dict(boxstyle='round', facecolor='wheat', alpha=0.5)
-
-    # --- 3. RENDERING ENGINE LOOP ---
-    for panel_idx in range(nrows * ncols):
-        ax = axes.flat[panel_idx]
-        if panel_idx >= npanels:
-            ax.axis('off')  # Hide superfluous plot slots
-            continue
-
-        # Overlay matching lines per model within the target category panel
-        for p_idx, p_name in enumerate(model_data.keys()):
-            struct = model_data[p_name]
-            r_center = struct['r_center']
-            dens = struct['dens']
-            mid_idx = struct['idx_midplane']
-            g_mass = struct['grain_mass']
-            nspec = struct['nspecies']
-
-            if panel_idx < nspec:
-                # 1. Processing discrete grain sizes panels row traces
-                profile = dens[panel_idx, mid_idx, :]
-
-                if dens_type == 'number' and g_mass is not None:
-                    y_data = profile / g_mass[panel_idx]
-                elif dens_type == 'surface' and g_mass is not None and global_sizes is not None:
-                    y_data = 4 * np.pi * (global_sizes[panel_idx] * 1e-4) * profile / g_mass[panel_idx]
-                else:
-                    y_data = profile
-
-                ax.plot(r_center, y_data, color=colors[p_idx], lw=2, label=p_name)
-                ax.set_title(f'Bin {panel_idx + 1}', fontsize=12)
-
-                # Attach text overlays for particle dimensions scales
-                if p_idx == 0 and global_sizes is not None and panel_idx < len(global_sizes):
-                    s = global_sizes[panel_idx]
-                    size_label = f'{s/1e3:.1f} mm' if s >= 1e3 else f'{s:.2f} ' + r'$\mu$m'
-                    ax.text(0.05, 0.95, size_label, transform=ax.transAxes,
-                            fontsize=11, verticalalignment='top', bbox=props)
-
-            elif panel_idx == max_bins:
-                # 2. Processing total integrated cumulative profile mass trace
-                total_profile = dens[:, mid_idx, :].sum(axis=0)
-                ax.plot(r_center, total_profile, color=colors[p_idx], lw=2.5, 
-                        linestyle=linestyle_pool[p_idx % len(linestyle_pool)], label=p_name)
-                ax.set_title('Total Mass Profile', fontsize=12, fontweight='bold')
-
-        # --- 4. AXES BOUNDARIES AND SCALE NORMS ---
-        ax.set_yscale('log')
-        ax.set_ylim(vmin, vmax)
-
-        if xlim:
-            ax.set_xlim(xlim)
-            ax.set_xscale('linear')
-        else:
-            ax.set_xscale('log')
-
-        ax.grid(True, linestyle=':', alpha=0.5)
-        
-        # Enforce distinct legendary annotations across all active plotting slots
-        ax.legend(loc='best', fontsize=8, frameon=True)
-
-    # Apply peripheral labels structures formatting updates
-    for ax in axes[-1, :]:
-        if ax.get_visible(): ax.set_xlabel('Radius r [au]', fontsize=12)
-    for ax in axes[:, 0]:
-        if ax.get_visible(): ax.set_ylabel(ylabel, fontsize=12)
-
-    plt.tight_layout()
-    plt.show()
 
 import os
 import numpy as np
