@@ -67,7 +67,7 @@ def cd(newdir):
     finally:
         os.chdir(prevdir)
 
-def writing_input_files(chemistry_path,thermal_path,MOL,datadict,verbose=True):
+def writing_input_files(chemistry_path,thermal_path,MOL,datadict,verbose=True,time_index=-1):
     """ Writing input files :
      - numberdens_XX.inp
      - gas_velocity.inp
@@ -78,7 +78,7 @@ def writing_input_files(chemistry_path,thermal_path,MOL,datadict,verbose=True):
         pipe = pipeline.Interface()
         pipe.add_chemical_path(chemistry_path)  # path to the chemistry directory
         pipe.add_thermal_path(thermal_path)  # path to thermal directory
-        pipe.add_chemistry()
+        pipe.add_chemistry(itime=time_index)
         
         # WRITING numberdens_XX.inp FILES
         for molec in MOL:
