@@ -1749,7 +1749,8 @@ def plot_midplane_nautilus_multi_comparison(PIPE,
                                            ylim=None,
                                            colormap="turbo",
                                            vmin=None,
-                                           vmax=None):
+                                           vmax=None,
+                                           figsize=None):
     r"""
     Plots and compares 1D radial profiles of multiple variables or chemical species 
     strictly at the disk midplane (z = 0) across multiple simulation models.
@@ -1784,6 +1785,8 @@ def plot_midplane_nautilus_multi_comparison(PIPE,
         Matplotlib colormap used to split colors across keys. Defaults to "turbo".
     vmin, vmax : float, optional
         Forced boundary constraints for the vertical profile sampling scale.
+    figsize : tuple, optional
+        Figure size
 
     Returns
     -------
@@ -1849,7 +1852,7 @@ def plot_midplane_nautilus_multi_comparison(PIPE,
             return None
 
     # --- PLOT INITIALIZATION ---
-    fig, ax = plt.subplots(figsize=(10, 6))
+    fig, ax = plt.subplots(figsize=(10, 6)) if figsize == None else plt.subplots(figsize=figsize)
     
     # Configure the categorical color selection profile
     if len(key_list) == 1:
