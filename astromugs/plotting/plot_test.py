@@ -2674,7 +2674,8 @@ def plot_grain_properties_midplane_comparison(PIPE, MODEL_NAMES, key_list=['CO']
     Renders 2D grain profile snapshots.
     - If 1 model: Grid layout with max 3 columns, wrapping temperature and species.
     - If >1 model: Grid layout tracking models cleanly column-by-column.
-    Uses robust PolyCollection for temperatures to avoid griddata interpolation artifacts.
+    
+    Fully supports models with different numbers of radial grid points (asymmetric grids).
     """
     if isinstance(key_list, str): key_list = [key_list]
     key_list = list(dict.fromkeys(key_list))
@@ -2736,20 +2737,18 @@ def plot_grain_properties_midplane_comparison(PIPE, MODEL_NAMES, key_list=['CO']
                     bin_values.append(v_cell)
                 species_abundance_matrices[key].append(bin_values)
 
+        # IMPORTANT : On garde sous forme de listes Python natives pour éviter les corruptions de shape
         model_data[p_name] = {
-            'disk_radii': np.array(disk_radii), 'grain_sizes': np.array(grain_sizes_matrix),
-            'grain_temps': np.array(grain_temps_matrix), 'abundance_matrices': species_abundance_matrices
+            'disk_radii': np.array(disk_radii), 
+            'grain_sizes': grain_sizes_matrix,
+            'grain_temps': grain_temps_matrix, 
+            'abundance_matrices': species_abundance_matrices
         }
 
     num_models = len(PIPE)
     model_names = list(model_data.keys())
-    num_grain_bins = model_data[model_names[0]]['grain_sizes'].shape[1]
     
-    y_centers = np.arange(num_grain_bins)
-    y_edges = np.arange(num_grain_bins + 1) - 0.5
-
-    # --- CONFIGURATION DYNAMIQUE DE LA GRILLE DE SUBPLOTS ---
-    # Un "item" de ligne correspond à la Température + chaque molécule de key_list
+    # --- CONFIGURATION DE LA GRILLE DE SUBPLOTS ---
     total_plot_items = 1 + len(key_list) 
 
     if num_models == 1:
@@ -2762,45 +2761,64 @@ def plot_grain_properties_midplane_comparison(PIPE, MODEL_NAMES, key_list=['CO']
         rows = total_plot_items
         fig, axes = plt.subplots(rows, cols, figsize=(5.5 * cols, 4.0 * rows), squeeze=False)
 
-    # --- CALCUL ÉCHELLE COMMUNE POUR LA TEMPÉRATURE ---
+    # Échelle commune globale calculée de manière safe sur les listes
     if common_scale:
-        all_temps = np.concatenate([model_data[m]['grain_temps'].flatten() for m in model_names])
+        all_temps = []
+        for m in model_names:
+            for row in model_data[m]['grain_temps']:
+                all_temps.extend(row)
+        all_temps = np.array(all_temps)
         global_tmin = Tmin if Tmin is not None else all_temps.min()
         global_tmax = Tmax if Tmax is not None else all_temps.max()
 
-    # 1. RENDU DES TEMPÉRATURES DE GRAINS (Row Index = 0)
+    # 1. RENDU DES TEMPÉRATURES DE GRAINS (Row = 0)
     for col_idx, p_name in enumerate(model_names):
         ax = axes[0] if num_models == 1 else axes[0, col_idx]
         struct = model_data[p_name]
         radii = struct['disk_radii']
-        temps = struct['grain_temps']
+        temps = struct['grain_temps'] # Liste de listes native
+        
+        if len(radii) == 0: continue
         
         r_edges = [radii[0]-0.5, radii[0]+0.5] if len(radii)==1 else [radii[0]-0.5*np.diff(radii)[0]] + [radii[i]+0.5*np.diff(radii)[i] for i in range(len(np.diff(radii)))] + [radii[-1]+0.5*np.diff(radii)[-1]]
         
         polygons, temp_values = [], []
         for i in range(len(radii)):
+            num_grain_bins = len(temps[i])
+            y_edges = np.arange(num_grain_bins + 1) - 0.5
             for j in range(num_grain_bins):
                 polygons.append([(r_edges[i], y_edges[j]), (r_edges[i+1], y_edges[j]), (r_edges[i+1], y_edges[j+1]), (r_edges[i], y_edges[j+1])])
                 temp_values.append(temps[i][j])
         
-        actual_tmin = global_tmin if common_scale else (Tmin if Tmin is not None else temps.min())
-        actual_tmax = global_tmax if common_scale else (Tmax if Tmax is not None else temps.max())
+        flat_temps = np.array(temp_values)
+        actual_tmin = global_tmin if common_scale else (Tmin if Tmin is not None else flat_temps.min())
+        actual_tmax = global_tmax if common_scale else (Tmax if Tmax is not None else flat_temps.max())
         
         norm_t = Normalize(vmin=actual_tmin, vmax=actual_tmax)
-        coll = PolyCollection(polygons, array=np.array(temp_values), cmap=temp_colormap, norm=norm_t, edgecolors='none')
+        coll = PolyCollection(polygons, array=flat_temps, cmap=temp_colormap, norm=norm_t, edgecolors='none')
         ax.add_collection(coll)
         
         fig.colorbar(plt.cm.ScalarMappable(norm=norm_t, cmap=temp_colormap), ax=ax, label=r"$T_{\rm grain}$ [K]")
         ax.set_title(f"{p_name}\nGrain Temp $T_{{grain}}$", fontsize=11, fontweight='bold')
+        
+        # Ajustement des axes locaux (yticks dynamiques selon les bins de ce modèle)
+        num_grain_bins_local = len(struct['grain_sizes'][0])
+        ax.set_yticks(np.arange(num_grain_bins_local))
+        ax.set_yticklabels([f"{s:.1f}" for s in struct['grain_sizes'][0]])
+        ax.set_xlim(xlim if xlim else (radii.min(), radii.max()))
+        ax.set_ylim(ylim if ylim else (-0.5, num_grain_bins_local - 0.5))
+        ax.set_xlabel('Radius R [AU]')
+        ax.set_ylabel('Grain Size [µm]')
 
     # 2. RENDU DES PROFILS D'ABONDANCE DES GLACES
     for row_idx, key in enumerate(key_list):
-        current_item_idx = row_idx + 1 # Décale de 1 car la ligne 0 est prise par la température
+        current_item_idx = row_idx + 1
         
         if species_scale_common:
             all_vals = []
             for m in model_names:
-                all_vals.extend(np.array(model_data[m]['abundance_matrices'][key]).flatten())
+                for row in model_data[m]['abundance_matrices'][key]:
+                    all_vals.extend(row)
             all_vals = np.array(all_vals)
             row_vmin = vmin if vmin is not None else (all_vals[all_vals > 0].min() if len(all_vals[all_vals > 0]) > 0 else 1e-15)
             row_vmax = vmax if vmax is not None else all_vals.max()
@@ -2809,11 +2827,16 @@ def plot_grain_properties_midplane_comparison(PIPE, MODEL_NAMES, key_list=['CO']
             ax = axes[current_item_idx] if num_models == 1 else axes[current_item_idx, col_idx]
             struct = model_data[p_name]
             radii = struct['disk_radii']
-            ab_matrix = struct['abundance_matrices'][key]
+            ab_matrix = struct['abundance_matrices'][key] # Liste de listes native
+            
+            if len(radii) == 0: continue
             
             r_edges = [radii[0]-0.5, radii[0]+0.5] if len(radii)==1 else [radii[0]-0.5*np.diff(radii)[0]] + [radii[i]+0.5*np.diff(radii)[i] for i in range(len(np.diff(radii)))] + [radii[-1]+0.5*np.diff(radii)[-1]]
+            
             polygons, values = [], []
             for i in range(len(radii)):
+                num_grain_bins = len(ab_matrix[i])
+                y_edges = np.arange(num_grain_bins + 1) - 0.5
                 for j in range(num_grain_bins):
                     polygons.append([(r_edges[i], y_edges[j]), (r_edges[i+1], y_edges[j]), (r_edges[i+1], y_edges[j+1]), (r_edges[i], y_edges[j+1])])
                     values.append(ab_matrix[i][j])
@@ -2832,24 +2855,17 @@ def plot_grain_properties_midplane_comparison(PIPE, MODEL_NAMES, key_list=['CO']
             ax.add_collection(coll)
             fig.colorbar(plt.cm.ScalarMappable(norm=norm_ab, cmap=ab_colormap), ax=ax, label="Ice Abundance")
             ax.set_title(f"{p_name}\n{clean_molec(key)} Ice Profile", fontsize=11)
+            
+            # Ajustement des axes locaux pour la molécule
+            num_grain_bins_local = len(struct['grain_sizes'][0])
+            ax.set_yticks(np.arange(num_grain_bins_local))
+            ax.set_yticklabels([f"{s:.1f}" for s in struct['grain_sizes'][0]])
+            ax.set_xlim(xlim if xlim else (radii.min(), radii.max()))
+            ax.set_ylim(ylim if ylim else (-0.5, num_grain_bins_local - 0.5))
+            ax.set_xlabel('Radius R [AU]')
+            ax.set_ylabel('Grain Size [µm]')
 
-    # 3. HABILLAGE ET CONFIGURATION ROBUSTE DES AXES
-    representative_sizes = model_data[model_names[0]]['grain_sizes'][0]
-    
-    for ax in axes.flatten():
-        ax.set_yticks(y_centers)
-        ax.set_yticklabels([f"{s:.1f}" for s in representative_sizes])
-        
-        # Définition stricte des limites X pour éviter les bords tronqués
-        ax.set_xlim(xlim if xlim else (model_data[model_names[0]]['disk_radii'].min(), model_data[model_names[0]]['disk_radii'].max()))
-        
-        # AJUSTEMENT POUR SUPPRIMER LES BANDES BLANCHES SUPERIEURES ET INFERIEURES
-        ax.set_ylim(ylim if ylim else (-0.5, num_grain_bins - 0.5))
-        
-        ax.set_xlabel('Radius R [AU]')
-        ax.set_ylabel('Grain Size [µm]')
-
-    # NETTOYAGE DES SUBPLOTS VIDES (Si 1 modèle et que le total des items n'est pas multiple de 3)
+    # Nettoyage final des structures orphelines (Si 1 seul modèle)
     if num_models == 1 and len(axes) > total_plot_items:
         for empty_ax in axes[total_plot_items:]:
             fig.delaxes(empty_ax)
@@ -2857,7 +2873,6 @@ def plot_grain_properties_midplane_comparison(PIPE, MODEL_NAMES, key_list=['CO']
     fig.suptitle(f'Midplane Grain Properties — $t = {time_years_string}$ years' if time_years_string else 'Midplane Grain Properties', fontsize=13, fontweight='bold', y=0.99)
     plt.tight_layout()
     plt.show()
-
 
 import os
 import re
