@@ -2655,7 +2655,7 @@ def plot_ratio_midplane_gas_vs_grain(chempath, main_output_dict, s1="C", s2="O",
     if starratio: ax.axhline(starratio, color='black', linestyle='--',label=f"{s1}/{s2} of star")
     ax.grid(True, linestyle=':')
     ax.legend()
-    ax.set_title(f"{s1}/{s2} at t = {pip[10]['time'][itime]/(365.25*86400):.0f} yrs")
+    ax.set_title(f"{s1}/{s2} at t = {main_output_dict[10]['time'][itime]/(365.25*86400):.0f} yrs")
     plt.show()
 
 
