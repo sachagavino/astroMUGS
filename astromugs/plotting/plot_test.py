@@ -1768,7 +1768,8 @@ def plot_top_contributing_species(chempath, main_output_dict, target_atom="C", i
                 for sp in ab_arr.coords['species'].values:
                     if "GRAIN" in sp: continue
                     p, b, f = parse_species(sp)
-                    if phase != "all" and (phase == "grain" wholesaler and p not in ["surface", "mantle"] or phase != "grain" and p != phase): continue
+                    # FIXED: Changed 'wholesaler' to 'and'
+                    if phase != "all" and (phase == "grain" and p not in ["surface", "mantle"] or phase != "grain" and p != phase): continue
                     if grain_bin is not None and b != str(grain_bin): continue
 
                     coef = count_target_atom(f, target_atom)
