@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """
 File name: plot_test.py
-Author: Sacha Gavino (Updated)
+Author: Sacha Gavino & François-Xavier Meyer
 Language: PYTHON 3
 Description: Comprehensive plotting suite for disk thermal models and chemical evolution structures (RADMC-3D & Nautilus).
 """
@@ -2050,13 +2050,24 @@ def plot_atom_ratio_nautilus_midplane(PIPE, MODEL_NAMES, ratio_list=['C/O'], iti
     plt.show()
 
 
+import os
+import re
+import numpy as np
+import matplotlib.pyplot as plt
+from matplotlib.collections import PolyCollection
+from matplotlib.colors import LogNorm, Normalize
+
 def plot_atom_ratio_nautilus_comparison(PIPE, MODEL_NAMES, ratio_list=['C/O'], itime=-1,
                                        verbose=True, xlim=None, ylim=None, colormap="gnuplot", common_scale=True):
     """
-    Plots 2D vertical atomic cuts mapping models column-by-column without processing differences or residuals.
+    Plots 2D vertical atomic cuts mapping models column-by-column.
+    - If 1 model: creates a grid of 3 columns max, wrapping rows as needed.
+    - If >1 model: creates a 2D grid with 1 column per model and 1 row per ratio.
     """
-    if len(MODEL_NAMES) != len(PIPE): raise ValueError("MODEL_NAMES and PIPE must have the same length")
-    if isinstance(ratio_list, str): ratio_list = [ratio_list]
+    if len(MODEL_NAMES) != len(PIPE): 
+        raise ValueError("MODEL_NAMES and PIPE must have the same length")
+    if isinstance(ratio_list, str): 
+        ratio_list = [ratio_list]
 
     elements = ['H', 'He', 'C', 'N', 'O', 'Si', 'S', 'Fe', 'Na', 'Mg', 'Cl', 'P', 'F']
     parsed_ratios = []
@@ -2064,7 +2075,8 @@ def plot_atom_ratio_nautilus_comparison(PIPE, MODEL_NAMES, ratio_list=['C/O'], i
         s1, s2 = item.split('/')
         parsed_ratios.append((s1, s2, item))
 
-    if len(MODEL_NAMES) != len(set(MODEL_NAMES)): MODEL_NAMES = [f"Model {i+1}" for i in range(len(PIPE))]
+    if len(MODEL_NAMES) != len(set(MODEL_NAMES)): 
+        MODEL_NAMES = [f"Model {i+1}" for i in range(len(PIPE))]
 
     def count_species_elements(species_name, element1, element2):
         if species_name == 'e-': return {element1: 0, element2: 0}
@@ -2083,6 +2095,7 @@ def plot_atom_ratio_nautilus_comparison(PIPE, MODEL_NAMES, ratio_list=['C/O'], i
     atom_cache = {}
     time_years_string = None
 
+    # Extraction et traitement des données 2D
     for p_idx, p in enumerate(PIPE):
         p_name = getattr(p, 'name', MODEL_NAMES[p_idx])
         ratio_database = {token: [] for _, _, token in parsed_ratios}
@@ -2146,10 +2159,18 @@ def plot_atom_ratio_nautilus_comparison(PIPE, MODEL_NAMES, ratio_list=['C/O'], i
     model_names = list(model_data.keys())
     num_ratios = len(parsed_ratios)
 
-    cols = num_models if num_models > 1 else min(3, num_ratios)
-    rows = num_ratios if num_models > 1 else (num_ratios + cols - 1) // cols
-    fig, axes = plt.subplots(rows, cols, figsize=(5.5 * cols, 4.5 * rows), squeeze=False)
+    # --- CONFIGURATION DYNAMIQUE DE LA GRILLE DE SUBPLOTS ---
+    if num_models == 1:
+        cols = min(3, num_ratios)
+        rows = (num_ratios + cols - 1) // cols
+        fig, axes = plt.subplots(rows, cols, figsize=(5.5 * cols, 4.5 * rows), squeeze=False)
+        axes = axes.flatten()  # Aplatit en 1D pour gérer l'affichage de 1 à 3 colonnes par ligne
+    else:
+        cols = num_models
+        rows = num_ratios
+        fig, axes = plt.subplots(rows, cols, figsize=(5.5 * cols, 4.5 * rows), squeeze=False)
 
+    # Boucle de génération des graphiques
     for row_idx, (_, _, token) in enumerate(parsed_ratios):
         if common_scale:
             all_row_vals = np.concatenate([model_data[m][token]['values'] for m in model_names if token in model_data[m]])
@@ -2159,7 +2180,13 @@ def plot_atom_ratio_nautilus_comparison(PIPE, MODEL_NAMES, ratio_list=['C/O'], i
 
         for col_idx, p_name in enumerate(model_names):
             if token not in model_data[p_name]: continue
-            ax = axes[row_idx, col_idx]
+            
+            # --- CORRECTION DE L'INDEXATION SÉCURISÉE ---
+            if num_models == 1:
+                ax = axes[row_idx]
+            else:
+                ax = axes[row_idx, col_idx]
+                
             struct = model_data[p_name][token]
             vals = struct['values']
             
@@ -2177,6 +2204,11 @@ def plot_atom_ratio_nautilus_comparison(PIPE, MODEL_NAMES, ratio_list=['C/O'], i
             ax.set_ylabel('z [AU]')
             ax.set_xlim(xlim if xlim else (0, max(struct['radii']) * 1.02))
             ax.set_ylim(ylim if ylim else (0, max(struct['all_z']) * 1.07))
+
+    # --- NETTOYAGE DES AXES VIDES ---
+    if num_models == 1 and len(axes) > num_ratios:
+        for empty_ax in axes[num_ratios:]:
+            fig.delaxes(empty_ax)
 
     plt.tight_layout()
     plt.show()
@@ -2327,10 +2359,16 @@ def plot_top_species_per_radius(chempath, main_output_dict, target_atom="C", iti
     plt.show()
 
 
+import re
+import os
+import numpy as np
+import matplotlib.pyplot as plt
+
 def plot_top_species_per_radius_midplane(chempath, main_output_dict, target_atom="C", itime=-1,
                                          verbose=True, spnumber=5, phase="gas", grain_bin=None, cmap_name="tab10", rmin=None, rmax=None):
     """
     Computes and plots the horizontal tracking carrier breakdown limited strictly to the midplane (z=0) slice row elements.
+    Adds a horizontal separation line between each distinct radius.
     """
     allowed_elements = ['H', 'He', 'C', 'N', 'O', 'Si', 'S', 'Fe', 'Na', 'Mg', 'Cl', 'P', 'F']
     if target_atom not in allowed_elements: raise ValueError(f"Atom '{target_atom}' unrecognized.")
@@ -2385,15 +2423,36 @@ def plot_top_species_per_radius_midplane(chempath, main_output_dict, target_atom
     species_colors = {sp: cmap(idx/max(1, len(unique_sp)-1)) for idx, sp in enumerate(unique_sp)}
 
     y_labels, x_pct, bar_colors = [], [], []
-    for r_val in sorted(list(radial_plot_data.keys()), reverse=True):
+    sorted_radii = sorted(list(radial_plot_data.keys()), reverse=True)
+    
+    # Construction des listes pour le barh
+    for r_val in sorted_radii:
         for sp, pct in reversed(radial_plot_data[r_val]):
             y_labels.append(f"{r_val} AU — ${re.sub(r'(\d+)', r'_{\1}', sp)}$")
             x_pct.append(pct)
             bar_colors.append(species_colors[sp])
 
     fig, ax = plt.subplots(figsize=(11, max(4, len(y_labels)*0.45)))
-    ax.barh(y_labels, x_pct, color=bar_colors, edgecolor='grey', alpha=0.85, height=0.7)
+    
+    # Tracé des barres horizontales
+    bars = ax.barh(y_labels, x_pct, color=bar_colors, edgecolor='grey', alpha=0.85, height=0.7)
+    
+    # --- AJOUT DES BARRES HORIZONTALES DE SÉPARATION ---
+    # Le graphique Matplotlib place les barres aux positions y = 0, 1, 2, ...
+    # On trace une ligne de démarcation entre chaque bloc de rayon
+    current_idx = 0
+    for r_val in sorted_radii[:-1]: # On ignore le dernier rayon car il est tout en bas
+        # Nombre de molécules affichées pour ce rayon spécifique
+        num_sp_this_radius = len(radial_plot_data[r_val])
+        current_idx += num_sp_this_radius
+        
+        # La ligne séparatrice se place mathématiquement à mi-chemin entre deux barres (-0.5)
+        ax.axhline(y=current_idx - 0.5, color='black', linestyle='-', linewidth=1.2, alpha=0.7)
+
     ax.set_xlabel('Disk Midplane Budget Contribution (%)')
+    ax.set_xlim(0, 105) # Laisse un peu d'espace à droite pour la clarté
+    ax.grid(True, axis='x', linestyle=':', alpha=0.6) # Grille verticale pour faciliter la lecture des %
+    
     plt.tight_layout()
     plt.show()
 
@@ -2596,23 +2655,26 @@ def plot_ratio_midplane_gas_vs_grain(chempath, main_output_dict, s1="C", s2="O",
     if starratio: ax.axhline(starratio, color='black', linestyle='--',label=f"{s1}/{s2} of star")
     ax.grid(True, linestyle=':')
     ax.legend()
-    ax.set_title(f"{s1}/{s2} at t = {(PIPE[-1].chemistry)[10]['time'][itime]/(365.25*86400):.0f} yrs")
+    ax.set_title(f"{s1}/{s2} at t = {pip[10]['time'][itime]/(365.25*86400):.0f} yrs")
     plt.show()
 
 
+import os
 import re
-from pathlib import Path
 import numpy as np
 import matplotlib.pyplot as plt
+from pathlib import Path
 from matplotlib.collections import PolyCollection
 from matplotlib.colors import LogNorm, Normalize
-from scipy.interpolate import griddata
 
 def plot_grain_properties_midplane_comparison(PIPE, MODEL_NAMES, key_list=['CO'], itime=-1, fracab=True,
-                                             verbose=True, xlim=None, ylim=None, Tmin=None, Tmax=None, vmin=None, vmax=None,
-                                             temp_colormap='hot', ab_colormap='plasma', common_scale=True, species_scale_common=False):
+                                              verbose=True, xlim=None, ylim=None, Tmin=None, Tmax=None, vmin=None, vmax=None,
+                                              temp_colormap='hot', ab_colormap='plasma', common_scale=True, species_scale_common=False):
     """
-    Renders 2D grain profile snapshots matching each individual model dynamically to a dedicated column space.
+    Renders 2D grain profile snapshots.
+    - If 1 model: Grid layout with max 3 columns, wrapping temperature and species.
+    - If >1 model: Grid layout tracking models cleanly column-by-column.
+    Uses robust PolyCollection for temperatures to avoid griddata interpolation artifacts.
     """
     if isinstance(key_list, str): key_list = [key_list]
     key_list = list(dict.fromkeys(key_list))
@@ -2681,48 +2743,60 @@ def plot_grain_properties_midplane_comparison(PIPE, MODEL_NAMES, key_list=['CO']
 
     num_models = len(PIPE)
     model_names = list(model_data.keys())
-    rows = 1 + len(key_list)
-    cols = num_models
-    fig, axes = plt.subplots(rows, cols, figsize=(5.5 * cols, 4.0 * rows), squeeze=False, sharex=True, sharey=True)
-
     num_grain_bins = model_data[model_names[0]]['grain_sizes'].shape[1]
+    
     y_centers = np.arange(num_grain_bins)
     y_edges = np.arange(num_grain_bins + 1) - 0.5
 
-    # --- FIX 1: Safe Global Temperature Initialization ---
+    # --- CONFIGURATION DYNAMIQUE DE LA GRILLE DE SUBPLOTS ---
+    # Un "item" de ligne correspond à la Température + chaque molécule de key_list
+    total_plot_items = 1 + len(key_list) 
+
+    if num_models == 1:
+        cols = min(3, total_plot_items)
+        rows = (total_plot_items + cols - 1) // cols
+        fig, axes = plt.subplots(rows, cols, figsize=(5.5 * cols, 4.0 * rows), squeeze=False)
+        axes = axes.flatten()
+    else:
+        cols = num_models
+        rows = total_plot_items
+        fig, axes = plt.subplots(rows, cols, figsize=(5.5 * cols, 4.0 * rows), squeeze=False)
+
+    # --- CALCUL ÉCHELLE COMMUNE POUR LA TEMPÉRATURE ---
     if common_scale:
         all_temps = np.concatenate([model_data[m]['grain_temps'].flatten() for m in model_names])
         global_tmin = Tmin if Tmin is not None else all_temps.min()
         global_tmax = Tmax if Tmax is not None else all_temps.max()
 
-    # Render Dust Temperatures
+    # 1. RENDU DES TEMPÉRATURES DE GRAINS (Row Index = 0)
     for col_idx, p_name in enumerate(model_names):
-        ax = axes[0, col_idx]
+        ax = axes[0] if num_models == 1 else axes[0, col_idx]
         struct = model_data[p_name]
         radii = struct['disk_radii']
         temps = struct['grain_temps']
         
-        grid_R, grid_Y = np.meshgrid(np.linspace(radii.min(), radii.max(), 200), np.linspace(y_edges[0], y_edges[-1], 200))
-        points_R = [r for r in radii for _ in y_centers]
-        points_Y = [y for _ in radii for y in y_centers]
-        grid_T = griddata((points_R, points_Y), temps.flatten(), (grid_R, grid_Y), method='cubic')
+        r_edges = [radii[0]-0.5, radii[0]+0.5] if len(radii)==1 else [radii[0]-0.5*np.diff(radii)[0]] + [radii[i]+0.5*np.diff(radii)[i] for i in range(len(np.diff(radii)))] + [radii[-1]+0.5*np.diff(radii)[-1]]
         
-        # --- FIX 2: Handle case where common_scale is False ---
-        if common_scale:
-            actual_tmin, actual_tmax = global_tmin, global_tmax
-        else:
-            actual_tmin = Tmin if Tmin is not None else temps.min()
-            actual_tmax = Tmax if Tmax is not None else temps.max()
-
-        cf = ax.contourf(grid_R, grid_Y, grid_T, levels=np.linspace(actual_tmin, actual_tmax, 50), cmap=temp_colormap)
-        fig.colorbar(cf, ax=ax, label=r"$T_{\rm grain}$ [K]")
+        polygons, temp_values = [], []
+        for i in range(len(radii)):
+            for j in range(num_grain_bins):
+                polygons.append([(r_edges[i], y_edges[j]), (r_edges[i+1], y_edges[j]), (r_edges[i+1], y_edges[j+1]), (r_edges[i], y_edges[j+1])])
+                temp_values.append(temps[i][j])
+        
+        actual_tmin = global_tmin if common_scale else (Tmin if Tmin is not None else temps.min())
+        actual_tmax = global_tmax if common_scale else (Tmax if Tmax is not None else temps.max())
+        
+        norm_t = Normalize(vmin=actual_tmin, vmax=actual_tmax)
+        coll = PolyCollection(polygons, array=np.array(temp_values), cmap=temp_colormap, norm=norm_t, edgecolors='none')
+        ax.add_collection(coll)
+        
+        fig.colorbar(plt.cm.ScalarMappable(norm=norm_t, cmap=temp_colormap), ax=ax, label=r"$T_{\rm grain}$ [K]")
         ax.set_title(f"{p_name}\nGrain Temp $T_{{grain}}$", fontsize=11, fontweight='bold')
 
-    # Render Chemical Species Profiles
+    # 2. RENDU DES PROFILS D'ABONDANCE DES GLACES
     for row_idx, key in enumerate(key_list):
-        current_row = row_idx + 1
+        current_item_idx = row_idx + 1 # Décale de 1 car la ligne 0 est prise par la température
         
-        # Calculate unified abundance scale for the row if species_scale_common is True
         if species_scale_common:
             all_vals = []
             for m in model_names:
@@ -2732,7 +2806,7 @@ def plot_grain_properties_midplane_comparison(PIPE, MODEL_NAMES, key_list=['CO']
             row_vmax = vmax if vmax is not None else all_vals.max()
 
         for col_idx, p_name in enumerate(model_names):
-            ax = axes[current_row, col_idx]
+            ax = axes[current_item_idx] if num_models == 1 else axes[current_item_idx, col_idx]
             struct = model_data[p_name]
             radii = struct['disk_radii']
             ab_matrix = struct['abundance_matrices'][key]
@@ -2752,37 +2826,59 @@ def plot_grain_properties_midplane_comparison(PIPE, MODEL_NAMES, key_list=['CO']
                 v_min_loc = vmin if vmin is not None else (vals_array[vals_array>0].min() if len(vals_array[vals_array>0])>0 else 1e-15)
                 v_max_loc = vmax if vmax is not None else vals_array.max()
             
-            norm = LogNorm(vmin=v_min_loc, vmax=v_max_loc) if v_max_loc/v_min_loc > 10 else Normalize(vmin=v_min_loc, vmax=v_max_loc)
+            norm_ab = LogNorm(vmin=v_min_loc, vmax=v_max_loc) if v_max_loc/v_min_loc > 10 else Normalize(vmin=v_min_loc, vmax=v_max_loc)
             
-            coll = PolyCollection(polygons, array=vals_array, cmap=ab_colormap, norm=norm, edgecolors='none')
+            coll = PolyCollection(polygons, array=vals_array, cmap=ab_colormap, norm=norm_ab, edgecolors='none')
             ax.add_collection(coll)
-            fig.colorbar(plt.cm.ScalarMappable(norm=norm, cmap=ab_colormap), ax=ax, label="Ice Abundance")
+            fig.colorbar(plt.cm.ScalarMappable(norm=norm_ab, cmap=ab_colormap), ax=ax, label="Ice Abundance")
             ax.set_title(f"{p_name}\n{clean_molec(key)} Ice Profile", fontsize=11)
 
-    # --- FIX 3: Robust y-axis generation ---
-    # Pull sizes from the first radius chunk of the first model to populate y-axis tick values cleanly
+    # 3. HABILLAGE ET CONFIGURATION ROBUSTE DES AXES
     representative_sizes = model_data[model_names[0]]['grain_sizes'][0]
     
     for ax in axes.flatten():
         ax.set_yticks(y_centers)
         ax.set_yticklabels([f"{s:.1f}" for s in representative_sizes])
+        
+        # Définition stricte des limites X pour éviter les bords tronqués
         ax.set_xlim(xlim if xlim else (model_data[model_names[0]]['disk_radii'].min(), model_data[model_names[0]]['disk_radii'].max()))
-        ax.set_ylim(ylim if ylim else (y_edges[0], y_edges[-1]))
+        
+        # AJUSTEMENT POUR SUPPRIMER LES BANDES BLANCHES SUPERIEURES ET INFERIEURES
+        ax.set_ylim(ylim if ylim else (-0.5, num_grain_bins - 0.5))
+        
         ax.set_xlabel('Radius R [AU]')
         ax.set_ylabel('Grain Size [µm]')
+
+    # NETTOYAGE DES SUBPLOTS VIDES (Si 1 modèle et que le total des items n'est pas multiple de 3)
+    if num_models == 1 and len(axes) > total_plot_items:
+        for empty_ax in axes[total_plot_items:]:
+            fig.delaxes(empty_ax)
 
     fig.suptitle(f'Midplane Grain Properties — $t = {time_years_string}$ years' if time_years_string else 'Midplane Grain Properties', fontsize=13, fontweight='bold', y=0.99)
     plt.tight_layout()
     plt.show()
 
 
+import os
+import re
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+from pathlib import Path
+from matplotlib.colors import LogNorm
+
 def density2D_grid_comparison(PIPE, MODEL_NAMES, vmin=1e-30, vmax=1e-15, cmap='gnuplot2',
-                              dens_type='mass', xlim=None, ylim=None, dust=None, select_bins=None, figsize=(14, 16)):
+                               dens_type='mass', xlim=None, ylim=None, dust=None, select_bins=None, figsize=(14, 16)):
     """
-    Compares 2D density structures across multiple runs, arranging each model run into an isolated, sequential column slice layout.
+    Compares 2D density structures across multiple runs.
+    - If 1 model: Grid layout with max 3 columns, wrapping each bin and the total density.
+    - If >1 model: Matrix layout with 1 column per model run and 1 row per dust bin + total.
     """
-    if len(MODEL_NAMES) != len(set(MODEL_NAMES)): MODEL_NAMES = [f"Model {i+1}" for i in range(len(PIPE))]
+    if len(MODEL_NAMES) != len(set(MODEL_NAMES)): 
+        MODEL_NAMES = [f"Model {i+1}" for i in range(len(PIPE))]
+        
     model_structures = {}
+    autocm = 1.495978707e13  # Assuré ici au cas où la variable globale n'est pas lue
 
     for p_idx, p in enumerate(PIPE):
         p_name = getattr(p, 'name', MODEL_NAMES[p_idx])
@@ -2815,23 +2911,42 @@ def density2D_grid_comparison(PIPE, MODEL_NAMES, vmin=1e-30, vmax=1e-15, cmap='g
     num_models = len(model_structures)
     model_names = list(model_structures.keys())
     nspecies_ref = model_structures[model_names[0]]['nspecies_display']
+    
+    total_plot_items = nspecies_ref + 1  # Bins + ligne "Total"
 
-    nrows = nspecies_ref + 1
-    cols = num_models
-    fig, axes = plt.subplots(nrows, cols, figsize=figsize, sharex=True, sharey=True)
-    axes = np.atleast_2d(axes)
+    # --- CONFIGURATION DYNAMIQUE DE LA GRILLE DE SUBPLOTS ---
+    if num_models == 1:
+        cols = min(4, total_plot_items)
+        rows = (total_plot_items + cols - 1) // cols
+        fig, axes = plt.subplots(rows, cols, figsize=figsize,sharex=True, sharey=True)
+        axes = axes.flatten()  # Format 1D fluide pour gérer le cas à 1 modèle
+    else:
+        cols = num_models
+        rows = total_plot_items
+        fig, axes = plt.subplots(rows, cols, figsize=figsize, sharex=True, sharey=True)
 
-    cbar_main_ax = fig.add_axes([0.92, 0.15, 0.015, 0.7])
+    # Sécurité pour ajuster le vmax s'il est envoyé à None depuis l'appel
+    if vmax is None:
+        all_max_vals = [model_structures[m]['dens'].max() for m in model_names]
+        vmax = max(all_max_vals)
 
-    for row_idx in range(nspecies_ref + 1):
+    im = None
+    # Boucle de génération des graphiques
+    for item_idx in range(total_plot_items):
         for col_idx, p_name in enumerate(model_names):
-            ax = axes[row_idx, col_idx]
             struct = model_structures[p_name]
             
-            if row_idx < nspecies_ref:
-                plot_data = struct['dens'][row_idx]
-                sz = struct['sizes'][row_idx] if struct['sizes'] is not None else None
-                title_str = f"bin {struct['original_bins'][row_idx]+1} ({f'{sz/1e3:.1f} mm' if sz>=1e3 else f'{sz:.2f} µm'})" if sz else f"bin {struct['original_bins'][row_idx]+1}"
+            # --- INDEXATION ADAPTÉE DU SUBPLOT ---
+            if num_models == 1:
+                ax = axes[item_idx]
+            else:
+                ax = axes[item_idx, col_idx]
+            
+            # Extraction des données selon qu'on traite un bin ou le total
+            if item_idx < nspecies_ref:
+                plot_data = struct['dens'][item_idx]
+                sz = struct['sizes'][item_idx] if struct['sizes'] is not None else None
+                title_str = f"bin {struct['original_bins'][item_idx]+1} ({f'{sz/1e3:.1f} mm' if sz>=1e3 else f'{sz:.2f} µm'})" if sz else f"bin {struct['original_bins'][item_idx]+1}"
             else:
                 plot_data = struct['dens'].sum(axis=0)
                 title_str = f"Total {dens_type.title()}"
@@ -2840,23 +2955,62 @@ def density2D_grid_comparison(PIPE, MODEL_NAMES, vmin=1e-30, vmax=1e-15, cmap='g
             ax.set_title(title_str, fontsize=11)
             ax.grid(True, linestyle=":", alpha=0.3)
             
-            if row_idx == 0:
+            # Ajustements des limites d'axes optionnels
+            if xlim: ax.set_xlim(xlim)
+            if ylim: ax.set_ylim(ylim)
+            
+            # Ajout du nom du modèle au-dessus de la première rangée
+            if item_idx == 0 and num_models > 1:
                 ax.text(0.5, 1.2, p_name, transform=ax.transAxes, fontsize=12, fontweight='bold', ha='center')
+            elif item_idx == 0 and num_models == 1:
+                fig.suptitle(f"Model: {p_name}", fontsize=14, fontweight='bold', y=0.98)
 
-    fig.colorbar(im, cax=cbar_main_ax, label=f"Density Field [{dens_type}]")
-    for ax in axes[-1, :]: ax.set_xlabel('r [au]', fontsize=12)
-    for ax in axes[:, 0]: ax.set_ylabel('z [au]', fontsize=12)
-    fig.subplots_adjust(right=0.90, left=0.08, bottom=0.06, top=0.90, hspace=0.35, wspace=0.15)
+    # --- POSITIONNEMENT ET CONFIGURATION DE LA COLORBAR ---
+    if num_models == 1:
+        # Pour 1 modèle, une colorbar sur le côté droit de la figure globale s'adapte mieux
+        fig.subplots_adjust(right=0.88, hspace=0.35, wspace=0.25)
+        cbar_ax = fig.add_axes([0.91, 0.15, 0.02, 0.7])
+        fig.colorbar(im, cax=cbar_ax, label=f"Density Field [{dens_type}]")
+        
+        # Attribution des labels d'axes pour tous les subplots actifs
+        for item_idx in range(total_plot_items):
+            axes[item_idx].set_xlabel('r [au]', fontsize=10)
+            axes[item_idx].set_ylabel('z [au]', fontsize=10)
+            
+        # Supprime les subplots en excès si la grille 3xN n'est pas parfaitement remplie
+        if len(axes) > total_plot_items:
+            for empty_ax in axes[total_plot_items:]:
+                fig.delaxes(empty_ax)
+    else:
+        # Pour plusieurs modèles, structure classique en matrice
+        fig.colorbar(im, cax=fig.add_axes([0.92, 0.15, 0.015, 0.7]), label=f"Density Field [{dens_type}]")
+        for ax in axes[-1, :]: ax.set_xlabel('r [au]', fontsize=12)
+        for ax in axes[:, 0]: ax.set_ylabel('z [au]', fontsize=12)
+        fig.subplots_adjust(right=0.90, left=0.08, bottom=0.06, top=0.90, hspace=0.35, wspace=0.15)
+
     plt.show()
 
+
+import os
+import re
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+from pathlib import Path
+from matplotlib.colors import LogNorm
 
 def temperature2D_grid_comparison(PIPE, MODEL_NAMES, vmin=1.0, vmax=1e3, cmap='gnuplot2',
                                   xlim=None, ylim=None, snowline_temp=20.0, select_bins=None, figsize=(14, 12), dust=None):
     """
-    Compares 2D poloidal dust temperature cross-sections. Each model occupies its own individual subplot column mapping index.
+    Compares 2D poloidal dust temperature cross-sections.
+    - If 1 model: Grid layout with max 3 columns, wrapping each dust temperature bin.
+    - If >1 model: Matrix layout with 1 column per model run and 1 row per dust bin.
     """
-    if len(MODEL_NAMES) != len(set(MODEL_NAMES)): MODEL_NAMES = [f"Model {i+1}" for i in range(len(PIPE))]
+    if len(MODEL_NAMES) != len(set(MODEL_NAMES)): 
+        MODEL_NAMES = [f"Model {i+1}" for i in range(len(PIPE))]
+        
     model_structures = {}
+    autocm = 1.495978707e13  # Assuré ici au cas où la variable globale n'est pas lue
 
     for p_idx, p in enumerate(PIPE):
         p_name = getattr(p, 'name', MODEL_NAMES[p_idx])
@@ -2894,15 +3048,34 @@ def temperature2D_grid_comparison(PIPE, MODEL_NAMES, vmin=1.0, vmax=1e3, cmap='g
     model_names = list(model_structures.keys())
     nspecies_ref = model_structures[model_names[0]]['nspecies_display']
 
-    fig, axes = plt.subplots(nspecies_ref, num_models, figsize=figsize, sharex=True, sharey=True)
-    axes = np.atleast_2d(axes)
-    cbar_main_ax = fig.add_axes([0.93, 0.15, 0.015, 0.7])
+    # --- CONFIGURATION DYNAMIQUE DE LA GRILLE DE SUBPLOTS ---
+    if num_models == 1:
+        cols = min(4, nspecies_ref)
+        rows = (nspecies_ref + cols - 1) // cols
+        fig, axes = plt.subplots(rows, cols, figsize=figsize,sharex=True, sharey=True)
+        axes = axes.flatten()  # Format 1D fluide pour gérer le cas à 1 modèle
+    else:
+        cols = num_models
+        rows = nspecies_ref
+        fig, axes = plt.subplots(rows, cols, figsize=figsize, sharex=True, sharey=True)
 
+    # Sécurité pour ajuster le vmax s'il est envoyé à None depuis l'appel du notebook
+    if vmax is None:
+        all_max_vals = [model_structures[m]['temp'].max() for m in model_names]
+        vmax = max(all_max_vals)
+
+    im = None
+    # Boucle de génération des graphiques
     for row_idx in range(nspecies_ref):
         for col_idx, p_name in enumerate(model_names):
-            ax = axes[row_idx, col_idx]
             struct = model_structures[p_name]
             plot_data = struct['temp'][row_idx]
+            
+            # --- INDEXATION ADAPTÉE DU SUBPLOT ---
+            if num_models == 1:
+                ax = axes[row_idx]
+            else:
+                ax = axes[row_idx, col_idx]
             
             sz = struct['sizes'][row_idx] if struct['sizes'] is not None else None
             title_str = f"bin {struct['original_bins'][row_idx]+1} ({f'{sz/1e3:.1f} mm' if sz>=1e3 else f'{sz:.2f} µm'})" if sz else f"bin {struct['original_bins'][row_idx]+1}"
@@ -2911,19 +3084,47 @@ def temperature2D_grid_comparison(PIPE, MODEL_NAMES, vmin=1.0, vmax=1e3, cmap='g
             ax.set_title(title_str, fontsize=11)
             ax.grid(True, linestyle=":", alpha=0.3)
 
+            # Optionnel : Recadrage si xlim/ylim sont définis
+            if xlim: ax.set_xlim(xlim)
+            if ylim: ax.set_ylim(ylim)
+
+            # Ligne de contour pour la Snowline
             if snowline_temp:
-                try: ax.contour(struct['R_center'], struct['Z_center'], plot_data, levels=[float(snowline_temp)], colors='black', linewidths=1.5)
-                except: pass
+                try: 
+                    ax.contour(struct['R_center'], struct['Z_center'], plot_data, levels=[float(snowline_temp)], colors='black', linewidths=1.5)
+                except: 
+                    pass
 
-            if row_idx == 0:
+            # Ajout des titres de modèle
+            if row_idx == 0 and num_models > 1:
                 ax.text(0.5, 1.2, p_name, transform=ax.transAxes, fontsize=12, fontweight='bold', ha='center')
+            elif row_idx == 0 and num_models == 1:
+                fig.suptitle(f"Model: {p_name}", fontsize=14, fontweight='bold', y=0.98)
 
-    fig.colorbar(im, cax=cbar_main_ax, label=r'Dust Temperature $T_\mathrm{d}$ [K]')
-    for ax in axes[-1, :]: ax.set_xlabel('r [au]', fontsize=11)
-    for ax in axes[:, 0]: ax.set_ylabel('z [au]', fontsize=11)
-    fig.subplots_adjust(right=0.90, left=0.08, bottom=0.08, top=0.90, hspace=0.35, wspace=0.22)
+    # --- POSITIONNEMENT ET CONFIGURATION DE LA COLORBAR ---
+    if num_models == 1:
+        # Pour 1 modèle, ajustements d'espacement et colorbar globale latérale
+        fig.subplots_adjust(right=0.88, hspace=0.35, wspace=0.25)
+        cbar_ax = fig.add_axes([0.91, 0.15, 0.02, 0.7])
+        fig.colorbar(im, cax=cbar_ax, label=r'Dust Temperature $T_\mathrm{d}$ [K]')
+        
+        # Application des labels sur tous les subplots visibles
+        for row_idx in range(nspecies_ref):
+            axes[row_idx].set_xlabel('r [au]', fontsize=10)
+            axes[row_idx].set_ylabel('z [au]', fontsize=10)
+            
+        # Supprime les subplots en excès vides
+        if len(axes) > nspecies_ref:
+            for empty_ax in axes[nspecies_ref:]:
+                fig.delaxes(empty_ax)
+    else:
+        # Pour plusieurs modèles, structure classique en matrice 2D
+        fig.colorbar(im, cax=fig.add_axes([0.93, 0.15, 0.015, 0.7]), label=r'Dust Temperature $T_\mathrm{d}$ [K]')
+        for ax in axes[-1, :]: ax.set_xlabel('r [au]', fontsize=11)
+        for ax in axes[:, 0]: ax.set_ylabel('z [au]', fontsize=11)
+        fig.subplots_adjust(right=0.90, left=0.08, bottom=0.08, top=0.90, hspace=0.35, wspace=0.22)
+
     plt.show()
-
 
 from scipy.interpolate import griddata
 
