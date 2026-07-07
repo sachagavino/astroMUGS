@@ -2241,7 +2241,7 @@ def plot_grain_properties_midplane_comparison(PIPE, MODEL_NAMES, key_list=['CO']
         
         cf = ax.contourf(grid_R, grid_Y, grid_T, levels=np.linspace(actual_tmin, actual_tmax, 50), cmap=temp_colormap)
         fig.colorbar(cf, ax=ax, label=r"$T_{\rm grain}$ [K]")
-        ax.set_title(f"{p_name}\nGrain Temp $T_{\rm grain}$", fontsize=11, fontweight='bold')
+        ax.set_title(f"{p_name}\nGrain Temp $T_{{grain}}$", fontsize=11, fontweight='bold')
 
     # Render Chemical Species Profiles
     for row_idx, key in enumerate(key_list):
