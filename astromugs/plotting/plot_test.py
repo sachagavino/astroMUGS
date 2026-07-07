@@ -30,9 +30,7 @@ except ImportError:
 
 def density2D_grid(path='thermal/', vmin=1e-30, vmax=1e-15, cmap='gnuplot2', dens_type='mass',
                     xlim=None, ylim=None, dust=None, figsize=(10, 14)):
-    """
-    Plots 2D poloidal views of all dust species density distributions from a single model run.
-    """
+    """Plot all dust species on a single figure with subplots, plus total density."""
     grid = pd.read_table(path + 'amr_grid.inp', engine='python', skiprows=5)
     nr = int(grid.columns[0].split("  ")[0])
     nt = int(grid.columns[0].split("  ")[1])
@@ -51,20 +49,24 @@ def density2D_grid(path='thermal/', vmin=1e-30, vmax=1e-15, cmap='gnuplot2', den
     rr_edge, tt_edge = np.meshgrid(r_edge, theta_edge)
     R = rr_edge * np.sin(tt_edge)
     Z = rr_edge * np.cos(tt_edge)
-    dens = np.array(dens, copy=True)
+    dens = np.array(dens,copy=True)
     dens[dens <= 1e-100] = 1e-100
 
+    # Try to read grain sizes for subplot labels
+    import os
     sizes_file = path + 'dust_sizes.inp'
     if os.path.isfile(sizes_file):
         sizes = np.loadtxt(sizes_file)
         sizes = np.atleast_1d(sizes)
-    elif dust is not None:
-        rho_m = dust.rho_m
-        sizes = dust.sizes()[0]
-        grain_mass = dust.grainmass()
+    elif dust != None:
+        rho_m = dust.rho_m #g.cm3
+        sizes = dust.sizes()[0] # microns
+        grain_mass = dust.grainmass() # in gram
+
     else:
         sizes = None
 
+    # Layout: enough panels for all species + 1 total
     npanels = nspecies + 1
     ncols = min(nspecies, 4)
     nrows = int(np.ceil(npanels / ncols))
@@ -93,7 +95,10 @@ def density2D_grid(path='thermal/', vmin=1e-30, vmax=1e-15, cmap='gnuplot2', den
             ax.set_title(f'bin {idx+1}', fontsize=12)
             if sizes is not None and idx < len(sizes):
                 s = sizes[idx]
-                size_label = f'{s/1e3:.1f} mm' if s >= 1e3 else f'{s:.2f} ' + r'$\mu$m'
+                if s >= 1e3:
+                    size_label = f'{s/1e3:.1f} mm'
+                else:
+                    size_label = f'{s:.2f} ' + r'$\mu$m'
                 ax.text(0.05, 0.95, size_label, transform=ax.transAxes,
                         fontsize=15, verticalalignment='top',
                         horizontalalignment='left', bbox=props)
@@ -111,6 +116,7 @@ def density2D_grid(path='thermal/', vmin=1e-30, vmax=1e-15, cmap='gnuplot2', den
         if ylim:
             ax.set_ylim(ylim)
 
+    # Shared labels
     for ax in axes[-1, :]:
         if ax.get_visible():
             ax.set_xlabel('r [au]', fontsize=14)
@@ -118,47 +124,80 @@ def density2D_grid(path='thermal/', vmin=1e-30, vmax=1e-15, cmap='gnuplot2', den
         ax.set_ylabel('z [au]', fontsize=14)
 
     fig.subplots_adjust(right=0.88, hspace=0.15, wspace=0.08)
+    
+    #fig.colorbar(im, cax=cbar_ax, label=r'$\rho_\mathrm{d}$ [g cm$^{-3}$]')
+
     plt.show()
 
 
 def density1D_midplane(path='thermal/', vmin=1e-30, vmax=1e-15, dens_type='mass',
-                       xlim=None, dust=None, figsize=(12, 8)):
+                        xlim=None, dust=None, figsize=(12, 8)):
     """
-    Plots the 1D dust density profile in the midplane as a function of radius for each dust species.
+    Plots the 1D dust density profile in the midplane (z=0 / theta=pi/2) 
+    as a function of radius for each dust species.
+
+    Parameters:
+    -----------
+    path : str
+        Path to the directory containing RADMC-3D files.
+    vmin, vmax : float
+        Limits for the Y-axis (density).
+    dens_type : str
+        Type of density to plot: 'mass' (g/cm^3), 'number' (cm^-3), or 'surface' (cm^-1).
+    xlim : tuple/list, optional
+        Limits for the X-axis (radius in au).
+    dust : object, optional
+        An external dust object containing grain sizes and masses if files are missing.
+    figsize : tuple
+        Size of the output matplotlib figure.
     """
+    
+    # 1. Read grid structure and dust density data
+    # Read the AMR grid file to extract dimensions (nr = radial bins, nt = theta bins)
     grid = pd.read_table(path + 'amr_grid.inp', engine='python', skiprows=5)
     nr = int(grid.columns[0].split("  ")[0])
     nt = int(grid.columns[0].split("  ")[1])
     grid = np.array(grid[grid.columns[0]].values, copy=True)
     
+    # Read the raw dust density file (flat 1D array of values)
     dens = pd.read_table(path + 'dust_density.inp', engine='python', header=None, skiprows=3)
     dens = dens[0].values
     
+    # Deduce the number of dust species and reshape into a 3D array: (species, theta, radius)
     nspecies = int(len(dens) / (nr * nt))
     dens = np.reshape(dens, (nspecies, nt, nr))
 
+    # 2. Extract radial coordinates at cell centers (convert from cm to au)
+    # autocm is assumed to be a globally defined constant (1 au = 1.496e13 cm)
     r_edge = grid[:nr+1] / autocm
     r_center = 0.5 * (r_edge[:-1] + r_edge[1:])
+
+    # 3. Identify the midplane index (theta = pi/2)
+    # In RADMC-3D spherical coordinates, the equator is exactly at the midpoint of the theta axis
     idx_midplane = nt // 2 
 
+    # 4. Read grain sizes and masses for plotting labels and conversions
     sizes_file = path + 'dust_sizes.inp'
     if os.path.isfile(sizes_file):
         sizes = np.loadtxt(sizes_file)
         sizes = np.atleast_1d(sizes)
-    elif dust is not None:
-        rho_m = dust.rho_m
-        sizes = dust.sizes()[0]
-        grain_mass = dust.grainmass()
+    elif dust != None:
+        rho_m = dust.rho_m #g.cm3
+        sizes = dust.sizes()[0] # microns
+        grain_mass = dust.grainmass() # in gram
+
     else:
         sizes = None
 
-    npanels = nspecies + 1 
-    ncols = min(npanels, 3)
+    # 5. Configure the figure layout (Grid of subplots)
+    npanels = nspecies + 1  # Number of species + 1 extra panel for the total sum
+    ncols = min(npanels, 3) # Maximum of 3 columns
     nrows = int(np.ceil(npanels / ncols))
 
     fig, axes = plt.subplots(nrows, ncols, figsize=figsize, sharex=True, sharey=True)
-    axes = np.atleast_2d(axes)
+    axes = np.atleast_2d(axes) # Ensure axes is always a 2D array even for a single row
 
+    # Determine Y-axis label depending on the requested density type
     if dens_type == 'number':
         ylabel = r'$n_\mathrm{d}$ [cm$^{-3}$]'
     elif dens_type == 'surface':
@@ -166,22 +205,27 @@ def density1D_midplane(path='thermal/', vmin=1e-30, vmax=1e-15, dens_type='mass'
     else:
         ylabel = r'$\rho_\mathrm{d}$ [g cm$^{-3}$]'
 
+    # 6. Plotting loop over all available subplot slots
     for idx in range(nrows * ncols):
         ax = axes.flat[idx]
         
         if idx < nspecies:
+            # Extract 1D radial profile at the midplane for the current dust species
             profile = dens[idx, idx_midplane, :]
             
+            # Apply conversion factors based on the selected density type
             if dens_type == 'number':
-                y_data = profile / grain_mass[idx]
+                y_data = profile / grain_mass[idx] # Mass density / mass of one grain
             elif dens_type == 'surface':
+                # Cross-sectional area calculation (converting size from micron to cm)
                 y_data = 4 * np.pi * (sizes[idx] * 1e-4) * profile / grain_mass[idx]
             elif dens_type == 'mass':
-                y_data = profile
+                y_data = profile # Default is raw mass density
                 
             ax.plot(r_center, y_data, color='darkblue', lw=2)
             ax.set_title(f'Bin {idx+1}', fontsize=12)
             
+            # Add text box indicating the grain size for this specific bin
             if sizes is not None and idx < len(sizes):
                 s = sizes[idx]
                 size_label = f'{s/1e3:.1f} mm' if s >= 1e3 else f'{s:.2f} ' + r'$\mu$m'
@@ -190,22 +234,25 @@ def density1D_midplane(path='thermal/', vmin=1e-30, vmax=1e-15, dens_type='mass'
                         bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5))
 
         elif idx == nspecies:
+            # Plot total cumulative density (only relevant/calculated for mass density)
             if dens_type == 'mass':
                 total_profile = dens[:, idx_midplane, :].sum(axis=0)
                 ax.plot(r_center, total_profile, color='black', lw=2.5, linestyle='--')
                 ax.set_title('Total Mass', fontsize=12)
             else:
-                ax.axis('off')
+                ax.axis('off') # Hide total panel if it's not mass density
         else:
-            ax.axis('off')
+            ax.axis('off') # Hide any remaining empty subplots in the grid
 
+        # Configure axes scales and limits
         ax.set_yscale('log')
         ax.set_ylim(vmin, vmax)
         if xlim:
             ax.set_xlim(xlim)
         else:
-            ax.set_xscale('log')
+            ax.set_xscale('log') # Logarithmic scale is standard for protoplanetary disks
 
+    # Add global outer axis labels (only on edge plots thanks to sharex/sharey)
     for ax in axes[-1, :]:
         if ax.get_visible():
             ax.set_xlabel('r [au]', fontsize=12)
@@ -218,13 +265,13 @@ def density1D_midplane(path='thermal/', vmin=1e-30, vmax=1e-15, dens_type='mass'
 
 def density2D_grid_interactive(path='thermal/', vmin=1e-30, vmax=1e-15, cmap='gnuplot2', dens_type='mass',
                                 xlim=None, ylim=None, dust=None, figsize=(10, 14)):
-    """
-    Interactive version of density2D_grid with live sliders for vmin/vmax limits optimization.
-    Requires %matplotlib widget in the notebook.
-    """
+    """Interactive version of density2D_grid with sliders for vmin/vmax.
+    Requires %matplotlib widget in the notebook."""
     import ipywidgets as widgets
     from IPython.display import display
+    import os
 
+    # --- Load data once ---
     grid = pd.read_table(path + 'amr_grid.inp', engine='python', skiprows=5)
     nr = int(grid.columns[0].split("  ")[0])
     nt = int(grid.columns[0].split("  ")[1])
@@ -254,18 +301,20 @@ def density2D_grid_interactive(path='thermal/', vmin=1e-30, vmax=1e-15, cmap='gn
     else:
         sizes = None
 
+    # Precompute plot data for each panel
     plot_data = []
     for idx in range(nspecies):
         if dens_type == 'number' and dust is not None:
             plot_data.append(4 * np.pi * sizes[idx] * 1e-4 * dens[idx] / grain_mass[idx])
         else:
             plot_data.append(dens[idx])
-    plot_data.append(dens.sum(axis=0))
+    plot_data.append(dens.sum(axis=0))  # total
 
     npanels = nspecies + 1
     ncols = min(nspecies, 4)
     nrows = int(np.ceil(npanels / ncols))
 
+    # --- Build figure ---
     fig, axes = plt.subplots(nrows, ncols, figsize=figsize, sharex=True, sharey=True)
     axes = np.atleast_2d(axes)
     props = dict(boxstyle='round', facecolor='wheat', alpha=0.5)
@@ -280,7 +329,10 @@ def density2D_grid_interactive(path='thermal/', vmin=1e-30, vmax=1e-15, cmap='gn
             ax.set_title(f'bin {idx+1}', fontsize=12)
             if sizes is not None and idx < len(sizes):
                 s = sizes[idx]
-                size_label = f'{s/1e3:.1f} mm' if s >= 1e3 else f'{s:.2f} ' + r'$\mu$m'
+                if s >= 1e3:
+                    size_label = f'{s/1e3:.1f} mm'
+                else:
+                    size_label = f'{s:.2f} ' + r'$\mu$m'
                 ax.text(0.05, 0.95, size_label, transform=ax.transAxes,
                         fontsize=15, verticalalignment='top',
                         horizontalalignment='left', bbox=props)
@@ -292,40 +344,57 @@ def density2D_grid_interactive(path='thermal/', vmin=1e-30, vmax=1e-15, cmap='gn
         else:
             ax.set_visible(False)
             continue
-        if xlim: ax.set_xlim(xlim)
-        if ylim: ax.set_ylim(ylim)
+        if xlim:
+            ax.set_xlim(xlim)
+        if ylim:
+            ax.set_ylim(ylim)
 
     for ax in axes[-1, :]:
-        if ax.get_visible(): ax.set_xlabel('r [au]', fontsize=14)
-    for ax in axes[:, 0]: ax.set_ylabel('z [au]', fontsize=14)
+        if ax.get_visible():
+            ax.set_xlabel('r [au]', fontsize=14)
+    for ax in axes[:, 0]:
+        ax.set_ylabel('z [au]', fontsize=14)
 
     fig.subplots_adjust(right=0.88, hspace=0.15, wspace=0.08)
     cbar_ax = fig.add_axes([0.90, 0.15, 0.02, 0.7])
     cbar = fig.colorbar(meshes[-1], cax=cbar_ax, label=r'$\rho_\mathrm{d}$ [g cm$^{-3}$]')
 
-    log_vmin, log_vmax = np.log10(vmin), np.log10(vmax)
-    vmin_slider = widgets.FloatSlider(value=log_vmin, min=-50, max=0, step=0.5, description='log(vmin)', continuous_update=False, layout=widgets.Layout(width='400px'))
-    vmax_slider = widgets.FloatSlider(value=log_vmax, min=-50, max=0, step=0.5, description='log(vmax)', continuous_update=False, layout=widgets.Layout(width='400px'))
+    # --- Sliders ---
+    log_vmin = np.log10(vmin)
+    log_vmax = np.log10(vmax)
+
+    vmin_slider = widgets.FloatSlider(
+        value=log_vmin, min=-50, max=0, step=0.5,
+        description='log(vmin)', continuous_update=False,
+        style={'description_width': 'initial'}, layout=widgets.Layout(width='400px'))
+    vmax_slider = widgets.FloatSlider(
+        value=log_vmax, min=-50, max=0, step=0.5,
+        description='log(vmax)', continuous_update=False,
+        style={'description_width': 'initial'}, layout=widgets.Layout(width='400px'))
 
     def update_clim(change):
-        new_vmin, new_vmax = 10**vmin_slider.value, 10**vmax_slider.value
-        if new_vmin >= new_vmax: return
+        new_vmin = 10**vmin_slider.value
+        new_vmax = 10**vmax_slider.value
+        if new_vmin >= new_vmax:
+            return
         new_norm = LogNorm(vmin=new_vmin, vmax=new_vmax)
-        for m in meshes: m.set_norm(new_norm)
+        for m in meshes:
+            m.set_norm(new_norm)
         cbar.update_normal(meshes[-1])
         fig.canvas.draw_idle()
 
     vmin_slider.observe(update_clim, names='value')
     vmax_slider.observe(update_clim, names='value')
+
     display(widgets.HBox([vmin_slider, vmax_slider]))
     plt.show()
 
 
+
+
 def temperature2D_grid(path='thermal/', vmin=1e0, vmax=1e3, cmap='gnuplot2',
-                       xlim=None, ylim=None, figsize=(10, 14)):
-    """
-    Plots 2D poloidal dust temperature maps from a single model run.
-    """
+                    xlim=None, ylim=None, figsize=(10, 14)):
+    """Plot all dust species on a single figure with subplots, plus total density."""
     grid = pd.read_table(path + 'amr_grid.inp', engine='python', skiprows=5)
     nr = int(grid.columns[0].split("  ")[0])
     nt = int(grid.columns[0].split("  ")[1])
@@ -335,7 +404,7 @@ def temperature2D_grid(path='thermal/', vmin=1e0, vmax=1e3, cmap='gnuplot2',
     temp = temp[0].values
     nspecies = int(len(temp) / (nr * nt))
     temp = np.reshape(temp, (nspecies, nt, nr))
-    grid = np.array(grid, copy=True)
+    grid = np.array(grid,copy=True)
     r_edge = grid[:nr+1] / autocm
     theta_edge = grid[nr+1:nr+1+nt+1]
     theta_edge[-1] = np.pi
@@ -343,9 +412,13 @@ def temperature2D_grid(path='thermal/', vmin=1e0, vmax=1e3, cmap='gnuplot2',
     R = rr_edge * np.sin(tt_edge)
     Z = rr_edge * np.cos(tt_edge)
 
+    # Convert edge grid to cell-center grid for contour plotting
     R_center = 0.25 * (R[:-1, :-1] + R[1:, :-1] + R[:-1, 1:] + R[1:, 1:])
     Z_center = 0.25 * (Z[:-1, :-1] + Z[1:, :-1] + Z[:-1, 1:] + Z[1:, 1:])
 
+
+        # Try to read grain sizes for subplot labels
+    import os
     sizes_file = path + 'dust_sizes.inp'
     if os.path.isfile(sizes_file):
         sizes = np.loadtxt(sizes_file)
@@ -353,6 +426,7 @@ def temperature2D_grid(path='thermal/', vmin=1e0, vmax=1e3, cmap='gnuplot2',
     else:
         sizes = None
 
+    # Layout: enough panels for all species + 1 total
     npanels = nspecies + 1
     ncols = min(nspecies, 4)
     nrows = int(np.ceil(npanels / ncols))
@@ -362,16 +436,30 @@ def temperature2D_grid(path='thermal/', vmin=1e0, vmax=1e3, cmap='gnuplot2',
 
     props = dict(boxstyle='round', facecolor='wheat', alpha=0.5)
 
+    levels = np.arange(vmin, vmax + 10, 10)
+
     for idx in range(nrows * ncols):
         ax = axes.flat[idx]
         if idx < nspecies:
             im = ax.pcolormesh(R, Z, temp[idx], cmap=cmap, shading='auto',
-                               norm=LogNorm(vmin=vmin, vmax=vmax))
-            ax.contour(R_center, Z_center, temp[idx], levels=[20], colors='black', linewidths=2)
+                              norm=LogNorm(vmin=vmin, vmax=vmax))
+            #im = ax.contourf(R_center, Z_center, temp[idx], levels=levels, cmap=cmap)
+            cs = ax.contour(
+                R_center,
+                Z_center,
+                temp[idx],
+                levels=[20],
+                colors='black',
+                linewidths=2
+            )
+            #ax.clabel(cs, fmt="20 K", fontsize=10)
             ax.set_title(f'bin {idx+1}', fontsize=12)
             if sizes is not None and idx < len(sizes):
                 s = sizes[idx]
-                size_label = f'{s/1e3:.1f} mm' if s >= 1e3 else f'{s:.2f} ' + r'$\mu$m'
+                if s >= 1e3:
+                    size_label = f'{s/1e3:.1f} mm'
+                else:
+                    size_label = f'{s:.2f} ' + r'$\mu$m'
                 ax.text(0.05, 0.95, size_label, transform=ax.transAxes,
                         fontsize=15, verticalalignment='top',
                         horizontalalignment='left', bbox=props)
@@ -384,23 +472,26 @@ def temperature2D_grid(path='thermal/', vmin=1e0, vmax=1e3, cmap='gnuplot2',
             ax.set_visible(False)
             continue
 
-        if xlim: ax.set_xlim(xlim)
-        if ylim: ax.set_ylim(ylim)
+        if xlim:
+            ax.set_xlim(xlim)
+        if ylim:
+            ax.set_ylim(ylim)
 
+    # Shared labels
     for ax in axes[-1, :]:
-        if ax.get_visible(): ax.set_xlabel('r [au]', fontsize=14)
-    for ax in axes[:, 0]: ax.set_ylabel('z [au]', fontsize=14)
+        if ax.get_visible():
+            ax.set_xlabel('r [au]', fontsize=14)
+    for ax in axes[:, 0]:
+        ax.set_ylabel('z [au]', fontsize=14)
 
     fig.subplots_adjust(right=0.88, hspace=0.15, wspace=0.08)
     cbar_ax = fig.add_axes([0.90, 0.15, 0.02, 0.7])
     fig.colorbar(im, cax=cbar_ax, label=r'T [K]')
+
     plt.show()
 
 
 def midplane_temp(path='thermal/', xlim=None, ylim=None):
-    """
-    Plots midplane temperature profiles for all dust species.
-    """
     grid = pd.read_table(path+'amr_grid.inp', engine='python', skiprows=5)
     head = grid.columns
     nr = int(grid.columns[0].split("  ")[0])
@@ -409,38 +500,39 @@ def midplane_temp(path='thermal/', xlim=None, ylim=None):
     try:
         temp = pd.read_table(path+'dust_temperature.dat', engine='python', header=None, skiprows=3)
     except IOError:
-        print('plot.midplane_temp: dust_temperature.dat missing. Run thermal simulation first.')
+        print('plot.midplane_temp: the file dust_temperature.dat is not present. Run a dust thermal simulation first.')
         sys.exit(1)
     temp = temp[0].values
     nbspecies = int(len(temp)/(nr*nt))
     temp = np.reshape(temp, (nbspecies, nt, nr))
-    grid = np.array(grid, copy=True)
+    grid = np.array(grid,copy=True)
     dist = grid[:nr+1]/autocm
     theta = grid[nr+1:nr+1+nt+1]
     theta[-1] = np.pi
     dist, tt = np.meshgrid(dist, theta)
     rr = dist*np.sin(tt)
+    zz = dist*np.cos(tt)
     midtemp = temp[:, 90, :]
     radii = 0.5*(rr[90][0:rr[90].size-1] + rr[90][1:rr[90].size])
 
+    #--PLOT FIGURE--
     fig = plt.figure(figsize=(9.6, 8.2))
     ax = fig.add_subplot(111)
+    #-----profiles
     midtemp = pd.DataFrame(data=midtemp.transpose())
-    for ispec in range(nbspecies):
-        ax.plot(radii, midtemp[ispec].rolling(window=6, center=True).mean(), linewidth=2, label='bin: {}'.format(ispec+1))
-        if xlim: ax.set_xlim(xlim)
-        if ylim: ax.set_ylim(ylim)
-    ax.set_xlabel(r'r [au]', fontsize=20)
-    ax.set_ylabel(r'T [K]', fontsize=20)
+    for ispec in range(0, nbspecies):
+        ax.plot(radii, midtemp[ispec].rolling(window=6, center=True).mean(), linewidth=2, linestyle='-', label='bin: {}'.format(ispec+1))
+        if xlim:
+            ax.set_xlim(xlim)
+        if ylim:
+            ax.set_ylim(ylim)
+    ax.set_xlabel(r'r [au]', fontsize = 20)
+    ax.set_ylabel(r'T [K]', fontsize = 20)
     ax.legend(fontsize=15)
     ax.tick_params(labelsize=18)
     plt.show()
 
-
 def vertical_temp(thermpath='thermal/', chempath='chemistry/', r=100):
-    """
-    Plots the vertical temperature profile at a specified disk radius coordinate.
-    """
     grid = pd.read_table(thermpath+'amr_grid.inp', engine='python', skiprows=5)
     head = grid.columns
     nr = int(grid.columns[0].split("  ")[0])
@@ -454,13 +546,17 @@ def vertical_temp(thermpath='thermal/', chempath='chemistry/', r=100):
         try:
             temp = pd.read_table(chempath+str(r)+'AU/1D_static.dat', sep=r"\s+", engine='python', header=None, comment='!')
         except IOError:
-            print('plot.vertical_temp: radius {} does not exist.'.format(r))
+            print('plot.vertical_temp: radius {} does not exit in the model or path is not correct.'.format(r))
             sys.exit(1)
+        #--PLOT FIGURE--
         fig = plt.figure(figsize=(9.6, 8.2))
         ax = fig.add_subplot(111)
-        ax.plot(temp[5], temp[0], linewidth=2, label='{} AU'.format(r))
-        ax.set_ylabel(r'z [au]', fontsize=20)
-        ax.set_xlabel(r'T$_\mathrm{d}$ [K]', fontsize=20)
+        #-----profiles
+        ax.plot(temp[5], temp[0], linewidth=2, linestyle='-', label='{} AU'.format(r))
+        # ax.set_ylim(0,60)
+        # ax.set_xlim(1,350)
+        ax.set_ylabel(r'z [au]', fontsize = 20)
+        ax.set_xlabel(r'T$_\mathrm{d}$ [K]', fontsize = 20)
         ax.legend(fontsize=15)
         ax.tick_params(labelsize=18)
         plt.show()
@@ -469,51 +565,51 @@ def vertical_temp(thermpath='thermal/', chempath='chemistry/', r=100):
             static = pd.read_table(chempath+str(r)+'AU/1D_static.dat', sep=r"\s+", engine='python', header=None, comment='!')
             temp = pd.read_table(chempath+str(r)+'AU/temperatures.dat', sep=r"\s+", engine='python', header=None)
         except IOError:
-            print('plot.vertical_temp: radius = {} au does not exist.'.format(r))
+            print('plot.vertical_temp: radius = {} au does not exit in the model or path is not correct.'.format(r))
             sys.exit(1)
+        #--PLOT FIGURE--
         fig = plt.figure(figsize=(9.6, 8.2))
         ax = fig.add_subplot(111)
         props = dict(boxstyle='round', facecolor='wheat', alpha=0.5)
-        ax.text(0.91, 0.05, '{} AU'.format(r), transform=ax.transAxes, fontsize=16, bbox=props)
+        ax.text(0.91, 0.05, '{} AU'.format(r), horizontalalignment='center', verticalalignment='center', transform=ax.transAxes, fontsize=16, bbox=props)
+        #-----profiles
         for ai in range(nbspecies):
-            ax.plot(temp[ai], static[0], linewidth=2, label='bin: {}'.format(ai+1))
-        ax.set_ylabel(r'z [au]', fontsize=20)
-        ax.set_xlabel(r'T$_\mathrm{d}$ [K]', fontsize=20)
+            ax.plot(temp[ai], static[0], linewidth=2, linestyle='-', label='bin: {}'.format(ai+1))
+        # ax.set_ylim(0,60)
+        # ax.set_xlim(1,350)
+        ax.set_ylabel(r'z [au]', fontsize = 20)
+        ax.set_xlabel(r'T$_\mathrm{d}$ [K]', fontsize = 20)
         ax.legend(fontsize=15)
         ax.tick_params(labelsize=18)
         plt.show()
 
-
 def avz(chempath='thermal/', r=100):
-    """
-    Plots the vertical visual extinction profile (Av) as a function of disk altitude.
-    """
     static = pd.read_table(chempath+str(r)+'AU/1D_static.dat', sep=r"\s+", engine='python', header=None, comment='!', skiprows=1)
+    #--PLOT FIGURE--
     fig = plt.figure(figsize=(9.6, 8.2))
     ax = fig.add_subplot(111)
     props = dict(boxstyle='round', facecolor='wheat', alpha=0.5)
-    ax.text(0.91, 0.05, '{} AU'.format(r), transform=ax.transAxes, fontsize=16, bbox=props)
-    ax.plot(static[3], static[0], linewidth=2, label='vertical Av')
-    ax.set_xlabel(r'z [au]', fontsize=20)
-    ax.set_ylabel(r'A$_\mathrm{\nu}$ [mag]', fontsize=20)
+    ax.text(0.91, 0.05, '{} AU'.format(r), horizontalalignment='center', verticalalignment='center', transform=ax.transAxes, fontsize=16, bbox=props)
+    #-----profiles
+    ax.plot(static[3], static[0], linewidth=2, linestyle='-', label='vertical Av')
+    # ax.set_ylim(0,60)
+    # ax.set_xlim(1,350)
+    ax.set_xlabel(r'z [au]', fontsize = 20)
+    ax.set_ylabel(r'A$_\mathrm{\nu}$ [mag]', fontsize = 20)
     ax.legend(fontsize=15)
     ax.tick_params(labelsize=18)
     plt.show()
 
-
 def opacity(path='thermal/'):
-    """
-    Plots dust grain opacities across wavelengths for absorption and scattering components.
-    """
     opaclist = sorted(glob.glob(path+'dustkap*'))
 
-    # Absorption components
-    fig = plt.figure(figsize=(9.6, 8.2))
+    #---absorption
+    fig = plt.figure(figsize=(9.6, 8.2)) #fig = plt.figure(figsize=(9.6, 7.2))
     ax = fig.add_subplot(111) 
     ax.set_xlabel(r'$\lambda$ [$\mu$m]', fontsize=18)
     ax.set_ylabel(r'$\kappa_\mathrm{abs}$ [cm$^2$/g]', fontsize=18)
-    ax.set_xlim(1e-1, 1e4)
-    ax.set_ylim(1e-2, 1e5)
+    ax.set_xlim(1e-1,1e4)
+    ax.set_ylim(1e-2,1e5)
     for opac in opaclist:
         name = opac.split("_")[1].split(".")[0]
         kappa = pd.read_table(opac, sep=r"\s+", comment='#', header=None, skiprows=10)
@@ -522,13 +618,13 @@ def opacity(path='thermal/'):
     ax.legend(fontsize=15)
     plt.show()
 
-    # Scattering components tracks
-    fig = plt.figure(figsize=(9.6, 8.2))
+    #---scattering
+    fig = plt.figure(figsize=(9.6, 8.2)) #fig = plt.figure(figsize=(9.6, 7.2))
     ax = fig.add_subplot(111) 
     ax.set_xlabel(r'$\lambda$ [$\mu$m]', fontsize=18)
     ax.set_ylabel(r'$\kappa_\mathrm{scat}$ [cm$^2$/g]', fontsize=18)
-    ax.set_xlim(1e-1, 1e4)
-    ax.set_ylim(1e-2, 1e5)
+    ax.set_xlim(1e-1,1e4)
+    ax.set_ylim(1e-2,1e5)
     for opac in opaclist:
         name = opac.split("_")[1].split(".")[0]
         kappa = pd.read_table(opac, sep=r"\s+", comment='#', header=None, skiprows=10)
@@ -537,12 +633,13 @@ def opacity(path='thermal/'):
     ax.legend(fontsize=15)
     plt.show()
 
-    # Scattering angles cosine tracks
-    fig = plt.figure(figsize=(9.6, 8.2))
+    #---angles
+    fig = plt.figure(figsize=(9.6, 8.2)) #fig = plt.figure(figsize=(9.6, 7.2))
     ax = fig.add_subplot(111) 
     ax.set_xlabel(r'$\lambda$ [$\mu$m]', fontsize=18)
     ax.set_ylabel(r'<cos($\theta$)>', fontsize=18)
-    ax.set_xlim(1e-1, 1e4)
+    ax.set_xlim(1e-1,1e4)
+    #ax.set_ylim(0,1)
     for opac in opaclist:
         name = opac.split("_")[1].split(".")[0]
         kappa = pd.read_table(opac, sep=r"\s+", comment='#', header=None, skiprows=10)
@@ -553,11 +650,12 @@ def opacity(path='thermal/'):
 
 
 def localflux(path='thermal/'):
-    """
-    Plots the midplane local mean radiation field intensity profile across wavelengths.
-    """
-    flux = pd.read_table(path+'mean_intensity.out', sep=r"\s+", comment='#', header=None, skiprows=4)[0].values
+    #---1/ Get grid shape and reshape the local flux array accordingly
+    flux = pd.read_table(path+'mean_intensity.out', sep=r"\s+", comment='#', header=None, skiprows=4)
     grid = pd.read_table(path+'amr_grid.inp', engine='python', skiprows=5)
+    lam = pd.read_table(path+'mcmono_wavelength_micron.inp', engine='python', header=None, skiprows=1)
+    lam = lam[0].values
+    flux = flux[0].values
     
     head = grid.columns
     nr = int(grid.columns[0].split("  ")[0])
@@ -569,331 +667,690 @@ def localflux(path='thermal/'):
     dist, tt = np.meshgrid(dist, theta)
     rr = dist*np.sin(tt)
     radii = 0.5*(rr[90][0:rr[90].size-1] + rr[90][1:rr[90].size])
+    zz = dist*np.cos(tt)
     nlam = int(len(flux)/(nr*nt))
     flux = np.reshape(flux, (nlam, nt, nr))
     midflux = flux[:, 90, :]
 
     fig = plt.figure(figsize=(9.6, 8.2))
     ax = fig.add_subplot(111)
+    #-----profiles
     midflux_df = pd.DataFrame(data=midflux.transpose())
     for ilam in range(0, nlam, 2):
-        ax.semilogy(radii, midflux_df[ilam].rolling(window=5, center=True).mean(), linewidth=1)
-    ax.set_xlim(1, 200)
-    ax.set_ylim(1e-30, 1e-10)
-    ax.set_xlabel(r'r [au]', fontsize=20)
-    ax.set_ylabel(r'Flux', fontsize=20)
+        ax.semilogy(radii, midflux_df[ilam].rolling(window=5, center=True).mean(), linewidth=1, linestyle='-')
+    ax.set_xlim(1,200)
+    ax.set_ylim(1e-30,1e-10)
+    ax.set_xlabel(r'r [au]', fontsize = 20)
+    ax.set_ylabel(r'Flux', fontsize = 20)
     ax.grid()
     ax.tick_params(labelsize=22)
     plt.show()
 
 
-def image(pathfile='thermal/', distance=100, vmin=1e-10, vmax=1e3, cmap='gnuplot2', labels=None):
-    """
-    Plots multi-wavelength RADMC-3D continuum synthetic spatial intensity maps (Stokes I).
-    """
-    with open(pathfile, 'r') as f:
-        iformat = int(f.readline())                                 
-        npix_x, npix_y = [int(x) for x in f.readline().split()]   
-        nlam = int(f.readline())                                    
-        pix_cm, _ = [float(x) for x in f.readline().split()]       
-        wavelengths = [float(f.readline()) for _ in range(nlam)]   
+def image(pathfile='thermal/', distance=100, vmin=1e-10, vmax=1e3, cmap='gnuplot2',
+          labels=None):
+    """Plot a multi-wavelength RADMC3D continuum image (Stokes I).
 
-    pix_au = pix_cm / autocm
-    box_au = npix_x * pix_au
+    Parameters
+    ----------
+    pathfile : str
+        Path to the RADMC3D image.out file.
+    distance : float, optional
+        Source distance in parsec. Used to convert specific intensity
+        [erg/s/cm²/Hz/sr] to flux density [Jy/pixel]. Default is 100 pc.
+    vmin, vmax : float, optional
+        Color scale limits in Jy/pixel.
+    cmap : str, optional
+        Colormap name.
+    labels : list of str, optional
+        Wavelength labels for each panel. If None, labels are generated
+        automatically from the wavelengths read in the image header.
+    """
+    # --- Read RADMC3D image header ---
+    with open(pathfile, 'r') as f:
+        iformat = int(f.readline())                                 # 1 = I only, 3 = full Stokes
+        npix_x, npix_y = [int(x) for x in f.readline().split()]   # image size [pixels]
+        nlam = int(f.readline())                                    # number of wavelengths
+        pix_cm, _ = [float(x) for x in f.readline().split()]       # pixel size [cm]
+        wavelengths = [float(f.readline()) for _ in range(nlam)]   # wavelengths [microns]
+
+    # iformat 3 → full Stokes (I Q U V); anything else → intensity only
+    nstokes = 4 if iformat == 3 else 1
+
+    pix_au   = pix_cm / autocm
+    box_au   = npix_x * pix_au
     half_box = box_au / 2.0
 
-    distance_cm = distance * 3.086e18
-    omega_pix = (pix_cm / distance_cm) ** 2
-    to_jy = 1e23 * omega_pix
+    # --- Pixel solid angle and Jy/pixel conversion factor ---
+    distance_cm = distance * 3.086e18               # pc → cm
+    omega_pix   = (pix_cm / distance_cm) ** 2       # sr/pixel
+    to_jy       = 1e23 * omega_pix                  # erg/s/cm²/Hz/sr → Jy/pixel
 
     data = np.loadtxt(pathfile, skiprows=4 + nlam + 1)
-    nstokes = 4 if iformat == 3 else 1
     data = np.reshape(data, (nlam, npix_y, npix_x, nstokes))
+
     extent = [-half_box, half_box, -half_box, half_box]
+
+    # --- Stokes I images in Jy/pixel ---
     imgs = [data[i, :, :, 0] * to_jy for i in range(nlam)]
 
+    # --- Wavelength labels ---
     if labels is None:
         def _wave_label(lam):
-            if lam >= 1000: return f'Stokes I - {lam/1000:.2g} mm'
-            elif lam >= 1: return f'Stokes I - {lam:.4g} μm'
-            return f'Stokes I - {lam*1000:.4g} nm'
+            if lam >= 1000:
+                return f'Stokes I - {lam/1000:.2g} mm'
+            elif lam >= 1:
+                return f'Stokes I - {lam:.4g} μm'
+            else:
+                return f'Stokes I - {lam*1000:.4g} nm'
         labels = [_wave_label(w) for w in wavelengths]
 
     fig, axes = plt.subplots(1, nlam, figsize=(5*nlam, 5), sharex=True, sharey=True)
-    if nlam == 1: axes = [axes]
+    if nlam == 1:
+        axes = [axes]
 
     for i, ax in enumerate(axes):
-        im = ax.imshow(imgs[i], origin='lower', extent=extent, cmap=cmap,
-                       norm=LogNorm(vmin=vmin, vmax=vmax), interpolation='nearest')
+
+        im = ax.imshow(
+            imgs[i],
+            origin='lower',
+            extent=extent,
+            cmap=cmap,
+            norm=LogNorm(vmin=vmin, vmax=vmax),
+            interpolation='nearest'
+        )
+
         ax.tick_params(labelsize=17)
         ax.set_xlabel(r'x [au]', fontsize=17)
-        if i == 0: ax.set_ylabel(r'y [au]', fontsize=17)
-        ax.text(0.05, 0.95, labels[i], color='red', transform=ax.transAxes, fontsize=16, fontweight='bold', va='top')
 
-    cbar = fig.colorbar(im, ax=axes, location='right', fraction=0.025, pad=0.02)
+        if i == 0:
+            ax.set_ylabel(r'y [au]', fontsize=17)
+
+        ax.text(
+            0.05, 0.95,
+            labels[i],
+            horizontalalignment='left',
+            verticalalignment='top',
+            color='red',
+            transform=ax.transAxes,
+            fontsize=16,
+            fontweight='bold'
+        )
+
+    # --- Proper colorbar placement ---
+    cbar = fig.colorbar(
+        im,
+        ax=axes,
+        location='right',
+        fraction=0.025,
+        pad=0.02
+    )
+
     cbar.set_label(r'$I_\nu$ [Jy pixel$^{-1}$]', fontsize=17)
+    cbar.ax.tick_params(labelsize=14)
+
     plt.show()
 
 
-def image_vertical_cut(pathfile='thermal/', distance=100, xlim=None, ylim=None, labels=None, figsize=(9.6, 8.2)):
-    """
-    Plots 1D vertical cuts (along y at x=0) of Stokes I for each wavelength.
-    """
-    with open(pathfile, 'r') as f:
-        iformat = int(f.readline())
-        npix_x, npix_y = [int(x) for x in f.readline().split()]
-        nlam = int(f.readline())
-        pix_cm, _ = [float(x) for x in f.readline().split()]
-        wavelengths = [float(f.readline()) for _ in range(nlam)]
+def image_vertical_cut(pathfile='thermal/', distance=100, xlim=None, ylim=None,
+                       labels=None, figsize=(9.6, 8.2)):
+    """Plot vertical cuts (along y at x=0) of Stokes I for each wavelength.
 
-    pix_au = pix_cm / autocm
-    half_box = (npix_y * pix_au) / 2.0
-    to_jy = 1e23 * ((pix_cm / (distance * 3.086e18)) ** 2)
+    Parameters
+    ----------
+    pathfile : str
+        Path to the RADMC3D image.out file.
+    distance : float, optional
+        Source distance in parsec. Used to convert specific intensity
+        [erg/s/cm²/Hz/sr] to flux density [Jy/pixel]. Default is 100 pc.
+    xlim, ylim : tuple, optional
+        Axis limits.
+    labels : list of str, optional
+        Wavelength labels. If None, generated automatically from the header.
+    figsize : tuple, optional
+        Figure size.
+    """
+    # --- Read RADMC3D image header ---
+    with open(pathfile, 'r') as f:
+        iformat = int(f.readline())                                 # 1 = I only, 3 = full Stokes
+        npix_x, npix_y = [int(x) for x in f.readline().split()]   # image size [pixels]
+        nlam = int(f.readline())                                    # number of wavelengths
+        pix_cm, _ = [float(x) for x in f.readline().split()]       # pixel size [cm]
+        wavelengths = [float(f.readline()) for _ in range(nlam)]   # wavelengths [microns]
+
+    nstokes = 4 if iformat == 3 else 1
+
+    pix_au   = pix_cm / autocm
+    box_au   = npix_y * pix_au
+    half_box = box_au / 2.0
+
+    # --- Pixel solid angle and Jy/pixel conversion factor ---
+    distance_cm = distance * 3.086e18
+    omega_pix   = (pix_cm / distance_cm) ** 2
+    to_jy       = 1e23 * omega_pix
 
     data = np.loadtxt(pathfile, skiprows=4 + nlam + 1)
-    data = np.reshape(data, (nlam, npix_y, npix_x, 4 if iformat == 3 else 1))
+    data = np.reshape(data, (nlam, npix_y, npix_x, nstokes))
+
     y_au = np.linspace(-half_box, half_box, npix_y)
-    ix0 = npix_x // 2
+    ix0  = npix_x // 2  # column at x=0
 
     if labels is None:
-        labels = [f'{w/1000:.2g} mm' if w >= 1000 else (f'{w:.4g} μm' if w >= 1 else f'{w*1000:.4g} nm') for w in wavelengths]
+        def _wave_label(lam):
+            if lam >= 1000:
+                return f'{lam/1000:.2g} mm'
+            elif lam >= 1:
+                return f'{lam:.4g} μm'
+            else:
+                return f'{lam*1000:.4g} nm'
+        labels = [_wave_label(w) for w in wavelengths]
 
     fig, ax = plt.subplots(figsize=figsize)
+
     for i in range(nlam):
-        ax.semilogy(y_au, data[i, :, ix0, 0] * to_jy, linewidth=2, label=labels[i])
+        flux_cut = data[i, :, ix0, 0] * to_jy
+        ax.semilogy(y_au, flux_cut, linewidth=2, label=labels[i])
 
     ax.set_xlabel(r'y [au]', fontsize=20)
     ax.set_ylabel(r'$I_\nu$ [Jy pixel$^{-1}$]', fontsize=20)
     ax.legend(fontsize=15)
     ax.tick_params(labelsize=18)
-    if xlim: ax.set_xlim(xlim)
-    if ylim: ax.set_ylim(ylim)
+    if xlim:
+        ax.set_xlim(xlim)
+    if ylim:
+        ax.set_ylim(ylim)
+
     plt.show()
 
-
 def numberdens(species='CO', path='thermal/', vmin=1e0, vmax=1e8, cmap='gnuplot2',
-               ncols=3, xlim=None, ylim=None, figsize=None, save=False, savename='numberdens.pdf'):
-    """
-    Plots 2D maps of molecular number densities from files.
+               ncols=3, xlim=None, ylim=None, figsize=None,
+               save=False, savename='numberdens.pdf'):
+    """Plot 2D maps of molecular number densities from ``numberdens_XXX.inp`` files.
+
+    Accepts a single species name or a list of names. Multiple species are
+    displayed as a mosaic of subplots sharing the same colour scale.
+
+    Parameters
+    ----------
+    species : str or list of str, optional
+        Species name(s) matching ``numberdens_<species>.inp`` files.
+        Default is ``'CO'``.
+    path : str, optional
+        Path to the directory containing the RADMC-3D files. Default is
+        ``'thermal/'``.
+    vmin, vmax : float, optional
+        Shared colour scale limits [cm :sup:`-3`]. Default is ``1e0``
+        and ``1e8``.
+    cmap : str, optional
+        Colormap name. Default is ``'gnuplot2'``.
+    ncols : int, optional
+        Maximum number of columns in the mosaic. Default is ``3``.
+    xlim, ylim : tuple, optional
+        Axis limits (R, Z) in AU applied to every panel.
+    figsize : tuple or None, optional
+        Figure size. If None, computed automatically from ``ncols`` and
+        the number of rows.
+    save : bool, optional
+        Save the figure to ``savename``. Default is False.
+    savename : str, optional
+        Output filename when ``save=True``. Default is ``'numberdens.pdf'``.
     """
     species_list = [species] if isinstance(species, str) else list(species)
     nspecies = len(species_list)
 
+    # --- Grid: cell centres (shape nt × nr) — required for shading='gouraud' ---
     grid = pd.read_table(path + 'amr_grid.inp', engine='python', skiprows=5)
     nr = int(grid.columns[0].split("  ")[0])
     nt = int(grid.columns[0].split("  ")[1])
     grid = np.array(grid[grid.columns[0]].values, copy=True)
 
-    r_edge = grid[:nr+1] / autocm
+    r_edge     = grid[:nr+1] / autocm
     theta_edge = grid[nr+1:nr+1+nt+1]
     theta_edge[-1] = np.pi
-    r_cen = 0.5 * (r_edge[:-1] + r_edge[1:])
+    r_cen     = 0.5 * (r_edge[:-1]     + r_edge[1:])
     theta_cen = 0.5 * (theta_edge[:-1] + theta_edge[1:])
-    rr, tt = np.meshgrid(r_cen, theta_cen)
+    rr, tt = np.meshgrid(r_cen, theta_cen)          # (nt, nr)
     R = rr * np.sin(tt)
     Z = rr * np.cos(tt)
 
+    # --- Layout ---
     ncols = min(ncols, nspecies)
     nrows = int(np.ceil(nspecies / ncols))
-    if figsize is None: figsize = (5 * ncols + 1, 4 * nrows)
+    if figsize is None:
+        figsize = (5 * ncols + 1, 4 * nrows)
 
     norm = LogNorm(vmin=vmin, vmax=vmax)
-    fig, axes = plt.subplots(nrows, ncols, figsize=figsize, sharex=True, sharey=True)
+    fig, axes = plt.subplots(nrows, ncols, figsize=figsize,
+                             sharex=True, sharey=True)
     axes = np.atleast_1d(axes).ravel()
 
     im = None
     for idx, sp in enumerate(species_list):
         ax = axes[idx]
-        nd = pd.read_table(path + f'numberdens_{sp}.inp', engine='python', header=None, skiprows=2)
+        nd = pd.read_table(path + f'numberdens_{sp}.inp',
+                           engine='python', header=None, skiprows=2)
         nd = nd[0].values.reshape(nt, nr)
         nd = np.where(nd <= 0, 1e-100, nd)
 
-        im = ax.pcolormesh(R, Z, nd, cmap=cmap, shading='gouraud', norm=norm, rasterized=True)
+        im = ax.pcolormesh(R, Z, nd, cmap=cmap, shading='gouraud',
+                           norm=norm, rasterized=True)
         ax.set_title(sp, fontsize=13)
-        if xlim: ax.set_xlim(xlim)
-        if ylim: ax.set_ylim(ylim)
+        ax.tick_params(labelsize=12)
+        if xlim:
+            ax.set_xlim(xlim)
+        if ylim:
+            ax.set_ylim(ylim)
 
-    for idx in range(nspecies, len(axes)): axes[idx].set_visible(False)
-    for ax in axes[(nrows - 1) * ncols:]: ax.set_xlabel('R [au]', fontsize=13)
-    for i in range(nrows): axes[i * ncols].set_ylabel('Z [au]', fontsize=13)
+    # Hide unused panels
+    for idx in range(nspecies, len(axes)):
+        axes[idx].set_visible(False)
 
+    # Shared axis labels
+    for ax in axes[(nrows - 1) * ncols:]:
+        ax.set_xlabel('R [au]', fontsize=13)
+    for i in range(nrows):
+        axes[i * ncols].set_ylabel('Z [au]', fontsize=13)
+
+    # Single shared colorbar on the right
     fig.subplots_adjust(right=0.88, hspace=0.15, wspace=0.08)
     cbar_ax = fig.add_axes([0.90, 0.15, 0.02, 0.7])
     fig.colorbar(im, cax=cbar_ax, label=r'$n$ [cm$^{-3}$]')
-    if save: fig.savefig(savename, bbox_inches='tight')
+
+    if save:
+        fig.savefig(savename, bbox_inches='tight')
+
     plt.show()
 
 
-def plot_velocity_and_temperature(path='thermal/', vmin=0.0, vmax=10.0, logscale=False, cmap_v='viridis',
+def plot_velocity_and_temperature(path='thermal/', 
+                                  vmin=0.0, vmax=10.0, logscale=False, cmap_v='viridis',
                                   Tmin=10.0, Tmax=1000.0, logscale_T=True, cmap_T='inferno',
-                                  xlim=None, ylim=None, figsize=None, save=False, savename='gas_properties.pdf'):
+                                  xlim=None, ylim=None, figsize=None,
+                                  save=False, savename='gas_properties.pdf'):
+    """Plot a 2D side-by-side comparison of gas velocity (v_phi) and gas temperature.
+
+    Extracts the azimuthal Keplerian velocity component from a 3D spherical 
+    velocity file and the thermal gas structure from a temperature file, both 
+    formatted for RADMC-3D line transfer calculations. Displays them as a 
+    meridional (R, Z) cross-section slice.
+
+    Parameters
+    ----------
+    path : str, optional
+        Path to the directory containing the RADMC-3D input files. Default is 
+        ``'thermal/'``.
+    vmin, vmax : float, optional
+        Colour scale limits for the azimuthal velocity v_phi [km/s]. Default 
+        is ``0.0`` and ``10.0``.
+    logscale : bool, optional
+        If True, plot the velocity using a logarithmic color scale. Default 
+        is False.
+    cmap_v : str, optional
+        Colormap name for velocity field. Default is ``'viridis'``.
+    Tmin, Tmax : float, optional
+        Colour scale limits for gas kinetic temperature [K]. Default is 
+        ``10.0`` and ``1000.0``.
+    logscale_T : bool, optional
+        If True, plot the temperature using a logarithmic color scale. Default 
+        is True.
+    cmap_T : str, optional
+        Colormap name for the thermal structure. Default is ``'inferno'``.
+    xlim, ylim : tuple, optional
+        Spatial axis limits (R, Z) in astronomical units [au], shared by 
+        both panels.
+    figsize : tuple or None, optional
+        Figure dimensions. Default is ``(12, 5)`` for side-by-side layout.
+    save : bool, optional
+        Save the rendered figure to ``savename``. Default is False.
+    savename : str, optional
+        Output filename when ``save=True``. Default is ``'gas_properties.pdf'``.
     """
-    Plots a 2D side-by-side comparison of gas velocity (v_phi) and gas temperature.
-    """
+    # --- Grid: cell centres (shape nt × nr) ---
     grid = pd.read_table(path + 'amr_grid.inp', engine='python', skiprows=5)
     nr = int(grid.columns[0].split("  ")[0])
     nt = int(grid.columns[0].split("  ")[1])
     grid = np.array(grid[grid.columns[0]].values, copy=True)
 
-    r_edge = grid[:nr+1] / autocm
+    # Conversion of spherical radial grid boundaries from cm to au
+    r_edge     = grid[:nr+1] / autocm
     theta_edge = grid[nr+1:nr+1+nt+1]
     theta_edge[-1] = np.pi
-    r_cen = 0.5 * (r_edge[:-1] + r_edge[1:])
-    theta_cen = 0.5 * (theta_edge[:-1] + theta_edge[1:])
-    rr, tt = np.meshgrid(r_cen, theta_cen)
-    R, Z = rr * np.sin(tt), rr * np.cos(tt)
-
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=figsize if figsize else (12, 5), sharex=True, sharey=True)
-    norm_v = LogNorm(vmin=max(1e-2, vmin), vmax=vmax) if logscale else Normalize(vmin=vmin, vmax=vmax)
-
-    vphi_all = pd.read_table(path + 'gas_velocity.inp', engine='python', skiprows=2, sep=r'\s+')[2].values / 1e5
-    nphi = len(vphi_all) // (nt * nr)
-    im1 = ax1.pcolormesh(R, Z, vphi_all.reshape(nphi, nt, nr)[0, :, :], cmap=cmap_v, shading='gouraud', norm=norm_v, rasterized=True)
-    ax1.set_title('Gas Velocity' + (' (Log)' if logscale else ''), fontsize=13)
-    ax1.set_xlabel('R [au]')
-    ax1.set_ylabel('Z [au]')
-
-    t_all = pd.read_table(path + 'gas_temperature.inp', engine='python', skiprows=2)[0].values
-    t_2d = t_all.reshape(nphi, nt, nr)[0, :, :]
-    norm_T = LogNorm(vmin=max(1e-1, Tmin), vmax=Tmax) if logscale_T else Normalize(vmin=Tmin, vmax=Tmax)
     
-    im2 = ax2.pcolormesh(R, Z, t_2d, cmap=cmap_T, shading='gouraud', norm=norm_T, rasterized=True)
-    ax2.set_title('Gas Temperature', fontsize=13)
-    ax2.set_xlabel('R [au]')
+    # Calculation of cell centres from boundary edges via midpoints
+    r_cen     = 0.5 * (r_edge[:-1]     + r_edge[1:])
+    theta_cen = 0.5 * (theta_edge[:-1] + theta_edge[1:])
+    rr, tt = np.meshgrid(r_cen, theta_cen)          # (nt, nr)
+    
+    # Transformation from spherical polar (r, theta) to cylindrical (R, Z) coordinates
+    R = rr * np.sin(tt)
+    Z = rr * np.cos(tt)
 
-    if xlim: ax1.set_xlim(xlim)
-    if ylim: ax1.set_ylim(ylim)
+    if figsize is None:
+        figsize = (12, 5)
 
-    fig.colorbar(im1, cax=make_axes_locatable(ax1).append_axes("right", size="5%", pad=0.07), label=r'$v_\phi$ [km s$^{-1}$]')
-    fig.colorbar(im2, cax=make_axes_locatable(ax2).append_axes("right", size="5%", pad=0.07), label=r'$T_{\rm gas}$ [K]')
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=figsize, sharex=True, sharey=True)
+
+    if logscale:
+        if vmin <= 0: vmin = 1e-2
+        norm_v = LogNorm(vmin=vmin, vmax=vmax)
+    else:
+        norm_v = Normalize(vmin=vmin, vmax=vmax)
+
+    # RADMC-3D velocity file contains columns for (v_r, v_theta, v_phi)
+    vel_data = pd.read_table(path + 'gas_velocity.inp', engine='python', 
+                             header=None, skiprows=2, sep=r'\s+')
+    
+    # Extracting the 3rd column (index 2) for v_phi and converting from cm/s to km/s
+    vphi_all = vel_data[2].values / 1e5
+    
+    # Determining azimuthal grid size to reconstruct the nested loops (phi, theta, r)
+    nphi = len(vphi_all) // (nt * nr)
+    vphi_3d = vphi_all.reshape(nphi, nt, nr)
+    vphi_2d = vphi_3d[0, :, :]  # Meridional slice at phi = 0
+
+    im1 = ax1.pcolormesh(R, Z, vphi_2d, cmap=cmap_v, shading='gouraud',
+                         norm=norm_v, rasterized=True)
+    
+    title_v = r'Gas Velocity $v_\phi$ (Log)' if logscale else r'Gas Velocity $v_\phi$'
+    ax1.set_title(title_v, fontsize=13)
+    ax1.set_xlabel('R [au]', fontsize=12)
+    ax1.set_ylabel('Z [au]', fontsize=12)
+    ax1.tick_params(labelsize=11)
+
+    temp_data = pd.read_table(path + 'gas_temperature.inp', engine='python', 
+                              header=None, skiprows=2)
+    t_all = temp_data[0].values
+    
+    # Reconstructing the 3D grid layout matching the nested cell indexing (phi, theta, r)
+    t_3d = t_all.reshape(nphi, nt, nr)
+    t_2d = t_3d[0, :, :]  # Meridional slice at phi = 0
+
+    if Tmin is None:
+        # Exclusion of unphysical values (<= 0) when evaluating bounds under LogNorm
+        Tmin = np.min(t_2d[t_2d > 0]) if logscale_T else np.min(t_2d)
+    if Tmax is None:
+        Tmax = np.max(t_2d)
+
+    if logscale_T:
+        if Tmin <= 0: 
+            Tmin = 1e-1
+        norm_T = LogNorm(vmin=Tmin, vmax=Tmax)
+    else:
+        norm_T = Normalize(vmin=Tmin, vmax=Tmax)
+
+    im2 = ax2.pcolormesh(R, Z, t_2d, cmap=cmap_T, shading='gouraud',
+                         norm=norm_T, rasterized=True)
+    
+    title_T = 'Gas Temperature'
+    ax2.set_title(title_T, fontsize=13)
+    ax2.set_xlabel('R [au]', fontsize=12)
+    ax2.tick_params(labelsize=11)
+
+    if xlim:
+        ax1.set_xlim(xlim)
+    if ylim:
+        ax1.set_ylim(ylim)
+
+    divider1 = make_axes_locatable(ax1)
+    cax1 = divider1.append_axes("right", size="5%", pad=0.07)
+    fig.colorbar(im1, cax=cax1, label=r'$v_\phi$ [km s$^{-1}$]')
+
+    divider2 = make_axes_locatable(ax2)
+    cax2 = divider2.append_axes("right", size="5%", pad=0.07)
+    fig.colorbar(im2, cax=cax2, label=r'$T_{\rm gas}$ [K]')
+
     fig.tight_layout()
-    if save: fig.savefig(savename, bbox_inches='tight')
+
+    if save:
+        fig.savefig(savename, bbox_inches='tight')
+
     plt.show()
 
 
 def static(chempath='chemistry/', column='nH', vmin=1, vmax=50, iso=None, cmap='gnuplot2',
            xlim=None, ylim=None, figsize=(6, 6), save=False, savename='filename.pdf'):
+    """Plot a 2D map of a column from the 1D_static.dat files.
+
+    Scans all XXAU/ folders in chempath, reads each 1D_static.dat,
+    and builds a 2D (r, z) map of the chosen column.
+
+    Parameters
+    ----------
+    chempath : str
+        Path to the chemistry directory containing the XXAU/ folders.
+    column : str
+        Column to plot. One of: 'z', 'nH', 'Tg', 'Av', 'diff', 'Td',
+        'inv_ab', 'conv_factor', 'a', 'uv'.
+    vmin, vmax : float
+        Color scale limits.
+    iso : float or list, optional
+        Draw contour lines of Td at these levels (e.g. 20 or [20, 50]).
+    cmap : str
+        Colormap name.
+    xlim, ylim : tuple, optional
+        Axis limits (r, z) in AU.
+    figsize : tuple
+        Figure size.
+    save : bool
+        Save the figure to savename.
+    savename : str
+        Output filename if save is True.
     """
-    Plots a 2D map of a chosen physical parameter column from the 1D_static.dat files.
-    """
+    import os, re
+
     columns = ['z', 'nH', 'Tg', 'Av', 'diff', 'Td', 'inv_ab', 'conv_factor', 'a', 'uv']
-    folders = [d for d in os.listdir(chempath) if os.path.isdir(os.path.join(chempath, d)) and re.match(r'^\d+AU$', d)]
+
+    # Discover XXAU/ folders and extract radii
+    folders = [d for d in os.listdir(chempath)
+               if os.path.isdir(os.path.join(chempath, d)) and re.match(r'^\d+AU$', d)]
     rchem = sorted([int(d.replace('AU', '')) for d in folders])
 
+    # Read all files at once (nbz may differ per radius after surface truncation)
     all_data = []
     for r in rchem:
-        df = pd.read_table(os.path.join(chempath, f'{r}AU', '1D_static.dat'), sep=r"\s+", comment='!', header=None, engine='python')
+        filepath = os.path.join(chempath, f'{r}AU', '1D_static.dat')
+        df = pd.read_table(filepath, sep=r"\s+", comment='!', header=None, engine='python')
         df.columns = columns
         all_data.append(df)
 
     nbz_max = max(len(d) for d in all_data)
+
+    # Build 2D arrays; NaN for cells above the truncation height of each radius
     static_map = np.full((nbz_max, len(rchem)), np.nan)
-    temp_map = np.full((nbz_max, len(rchem)), np.nan)
-    zz = np.zeros((nbz_max, len(rchem)))
+    temp_map   = np.full((nbz_max, len(rchem)), np.nan)
+    zz         = np.zeros((nbz_max, len(rchem)))
 
     for idx, data in enumerate(all_data):
         nbz_r = len(data)
-        start = nbz_max - nbz_r
+        start = nbz_max - nbz_r       # top rows belong to the truncated surface
         static_map[start:, idx] = data[column].values
-        temp_map[start:, idx] = data['Td'].values
+        temp_map[start:, idx]   = data['Td'].values
         z_col = data['z'].values
         zz[start:, idx] = z_col
+        # Extrapolate z above the truncation so pcolormesh has valid coordinates
+        # (those cells are NaN in data so they will appear transparent)
         if start > 0:
             dz = (z_col[0] - z_col[1]) if nbz_r > 1 else z_col[0] * 0.1
             zz[:start, idx] = z_col[0] + np.arange(start, 0, -1) * dz
 
     rr, _ = np.meshgrid(rchem, np.arange(nbz_max))
+
+    # Plot
     fig, ax = plt.subplots(figsize=figsize)
     ax.set_aspect('equal', adjustable='box')
-    t = ax.pcolormesh(rr, zz, static_map, cmap=cmap, shading='auto', norm=LogNorm(vmin=vmin, vmax=vmax), rasterized=True)
-    fig.colorbar(t, pad=0.01, label=column)
+    t = ax.pcolormesh(rr, zz, static_map, cmap=cmap, shading='auto',
+                      norm=LogNorm(vmin=vmin, vmax=vmax), rasterized=True)
+    clr = fig.colorbar(t, pad=0.01)
+    clr.set_label(column, fontsize=16)
+    clr.ax.tick_params(labelsize=14)
 
     if iso is not None:
-        ax.contour(rr, zz, temp_map, [iso] if not isinstance(iso, (list, tuple)) else iso, colors='black', linewidths=2.5)
+        if not isinstance(iso, (list, tuple)):
+            iso = [iso]
+        ax.contour(rr, zz, temp_map, iso, colors='black', linewidths=2.5)
 
     ax.set_xlabel(r'r [au]', fontsize=20)
     ax.set_ylabel(r'z [au]', fontsize=20)
-    if xlim: ax.set_xlim(xlim)
-    if ylim: ax.set_ylim(ylim)
-    if save: fig.savefig(savename, bbox_inches='tight')
+    ax.tick_params(labelsize=15)
+    if xlim:
+        ax.set_xlim(xlim)
+    if ylim:
+        ax.set_ylim(ylim)
+
+    if save:
+        fig.savefig(savename, bbox_inches='tight')
+
     plt.show()
 
 
 def nmgc_grainsizes(chempath='chemistry/', quantity='Td', vmin=None, vmax=None, cmap='gnuplot2',
-                    xlim=None, ylim=None, figsize=(14, 10), save=False, savename='grain_sizes.pdf'):
+                xlim=None, ylim=None, figsize=(14, 10), save=False, savename='grain_sizes.pdf'):
+    """Plot 2D (r, z) maps per grain size from the 1D_grain_sizes.in files.
+
+    Each subplot corresponds to one grain size bin.
+
+    Parameters
+    ----------
+    chempath : str
+        Path to the chemistry directory containing the XXAU/ folders.
+    quantity : str
+        What to plot: 'Td' for dust temperature, 'nd' for dust number density (nH / inv_ab).
+    vmin, vmax : float, optional
+        Color scale limits. Auto-determined if None.
+    cmap : str
+        Colormap name.
+    xlim, ylim : tuple, optional
+        Axis limits (r, z) in AU.
+    figsize : tuple
+        Figure size.
+    save : bool
+        Save the figure to savename.
+    savename : str
+        Output filename if save is True.
     """
-    Plots localized 2D maps broken down across each unique chemical model grain size bin.
-    """
+    import os, re
+
     static_columns = ['z', 'nH', 'Tg', 'Av', 'diff', 'Td', 'inv_ab', 'conv_factor', 'a', 'uv']
-    folders = [d for d in os.listdir(chempath) if os.path.isdir(os.path.join(chempath, d)) and re.match(r'^\d+AU$', d)]
+
+    # Discover XXAU/ folders and extract radii
+    folders = [d for d in os.listdir(chempath)
+               if os.path.isdir(os.path.join(chempath, d)) and re.match(r'^\d+AU$', d)]
     rchem = sorted([int(d.replace('AU', '')) for d in folders])
 
-    with open(os.path.join(chempath, f'{rchem[0]}AU', '1D_grain_sizes.in'), 'r') as f:
+    # Read the first grain_sizes file to determine N (number of grain sizes)
+    # and grain radii from the first data line
+    first_gs = os.path.join(chempath, f'{rchem[0]}AU', '1D_grain_sizes.in')
+    with open(first_gs, 'r') as f:
         for line in f:
             stripped = line.split('!')[0].strip()
-            if not stripped: continue
+            if not stripped:
+                continue
             vals = stripped.split()
-            grain_radii_um = np.array([float(v) for v in vals[:len(vals) // 4]]) * 1e4
+            ncols = len(vals)
+            grain_radii_cm = np.array([float(v) for v in vals[:ncols // 4]])
             break
-    ngrains = len(grain_radii_um)
+    # ncols = 4*N (sizes, inv_ab, Td, CR-peak)
+    ngrains = ncols // 4
+    grain_radii_um = grain_radii_cm * 1e4  # cm to microns
 
+    # Read all static files first (nbz may differ per radius after surface truncation)
     all_static = []
     for r in rchem:
-        sd = pd.read_table(os.path.join(chempath, f'{r}AU', '1D_static.dat'), sep=r"\s+", comment='!', header=None, engine='python')
+        static_file = os.path.join(chempath, f'{r}AU', '1D_static.dat')
+        sd = pd.read_table(static_file, sep=r"\s+", comment='!', header=None, engine='python')
         sd.columns = static_columns
         all_static.append(sd)
 
     nbz_max = max(len(sd) for sd in all_static)
+
+    # Build arrays; NaN for cells above the truncation height of each radius
     data_map = np.full((ngrains, nbz_max, len(rchem)), np.nan)
     zz = np.zeros((nbz_max, len(rchem)))
 
     for idx, r in enumerate(rchem):
         static_data = all_static[idx]
         nbz_r = len(static_data)
-        start = nbz_max - nbz_r
-        zz[start:, idx] = static_data['z'].values
+        start = nbz_max - nbz_r       # top rows belong to the truncated surface
+        nH    = static_data['nH'].values
+        z_col = static_data['z'].values
+        zz[start:, idx] = z_col
+        # Extrapolate z above the truncation so pcolormesh has valid coordinates
         if start > 0:
-            dz = (zz[start, idx] - zz[start+1, idx]) if nbz_r > 1 else zz[start, idx] * 0.1
-            zz[:start, idx] = zz[start, idx] + np.arange(start, 0, -1) * dz
+            dz = (z_col[0] - z_col[1]) if nbz_r > 1 else z_col[0] * 0.1
+            zz[:start, idx] = z_col[0] + np.arange(start, 0, -1) * dz
 
+        # Read grain_sizes
+        gs_file = os.path.join(chempath, f'{r}AU', '1D_grain_sizes.in')
         gs_lines = []
-        with open(os.path.join(chempath, f'{r}AU', '1D_grain_sizes.in'), 'r') as f:
+        with open(gs_file, 'r') as f:
             for line in f:
                 stripped = line.split('!')[0].strip()
-                if not stripped: continue
+                if not stripped:
+                    continue
                 gs_lines.append([float(v) for v in stripped.split()])
-        gs_array = np.array(gs_lines)
+        gs_array = np.array(gs_lines)  # (nbz_r, 4*ngrains)
 
-        inv_ab = gs_array[:, ngrains:2*ngrains]
-        Td = gs_array[:, 2*ngrains:3*ngrains]
+        inv_ab = gs_array[:, ngrains:2*ngrains]       # (nbz_r, ngrains)
+        Td     = gs_array[:, 2*ngrains:3*ngrains]     # (nbz_r, ngrains)
 
-        for ig in range(ngrains):
-            if quantity == 'Td':
+        if quantity == 'Td':
+            for ig in range(ngrains):
                 data_map[ig, start:, idx] = Td[:, ig]
-            elif quantity == 'nd':
-                data_map[ig, start:, idx] = static_data['nH'].values / inv_ab[:, ig]
+        elif quantity == 'nd':
+            for ig in range(ngrains):
+                data_map[ig, start:, idx] = nH / inv_ab[:, ig]
 
     rr, _ = np.meshgrid(rchem, np.arange(nbz_max))
+
+    # Layout
     ncols_plot = min(ngrains, 4)
     nrows_plot = int(np.ceil(ngrains / ncols_plot))
+
     fig, axes = plt.subplots(nrows_plot, ncols_plot, figsize=figsize, sharex=True, sharey=True)
     axes = np.atleast_2d(axes)
+    props = dict(boxstyle='round', facecolor='wheat', alpha=0.5)
 
     for ig in range(nrows_plot * ncols_plot):
         ax = axes.flat[ig]
         if ig < ngrains:
             ax.set_aspect('equal', adjustable='box')
-            im = ax.pcolormesh(rr, zz, data_map[ig], cmap=cmap, shading='gouraud', norm=LogNorm(vmin=vmin, vmax=vmax), rasterized=True)
+            im = ax.pcolormesh(rr, zz, data_map[ig], cmap=cmap, shading='gouraud',
+                               norm=LogNorm(vmin=vmin, vmax=vmax), rasterized=True)
+            # Size label
             s = grain_radii_um[ig]
-            ax.text(0.05, 0.95, f'{s/1e3:.1f} mm' if s >= 1e3 else f'{s:.2f} µm', transform=ax.transAxes, fontsize=13, bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5), va='top')
-            if xlim: ax.set_xlim(xlim)
-            if ylim: ax.set_ylim(ylim)
+            if s >= 1e3:
+                size_label = f'{s/1e3:.1f} mm'
+            else:
+                size_label = f'{s:.2f} ' + r'$\mu$m'
+            ax.text(0.05, 0.95, size_label, transform=ax.transAxes,
+                    fontsize=13, verticalalignment='top',
+                    horizontalalignment='left', bbox=props)
+            if xlim:
+                ax.set_xlim(xlim)
+            if ylim:
+                ax.set_ylim(ylim)
         else:
             ax.set_visible(False)
 
+    for ax in axes[-1, :]:
+        if ax.get_visible():
+            ax.set_xlabel('r [au]', fontsize=14)
+    for ax in axes[:, 0]:
+        ax.set_ylabel('z [au]', fontsize=14)
+
     fig.subplots_adjust(right=0.88, hspace=0.15, wspace=0.08)
-    fig.colorbar(im, cax=fig.add_axes([0.90, 0.15, 0.02, 0.7]), label=r'T$_\mathrm{d}$ [K]' if quantity=='Td' else r'n$_\mathrm{d}$ [cm$^{-3}$]')
-    if save: fig.savefig(savename, bbox_inches='tight')
+    cbar_ax = fig.add_axes([0.90, 0.15, 0.02, 0.7])
+    if quantity == 'Td':
+        label = r'T$_\mathrm{d}$ [K]'
+    elif quantity == 'nd':
+        label = r'n$_\mathrm{d}$ [cm$^{-3}$]'
+    else:
+        label = quantity
+    fig.colorbar(im, cax=cbar_ax, label=label)
+
+    if save:
+        fig.savefig(savename, bbox_inches='tight')
+
     plt.show()
 
 
@@ -2136,11 +2593,20 @@ def plot_ratio_midplane_gas_vs_grain(chempath, main_output_dict, s1="C", s2="O",
     ax.plot(r_list, grain_r, color="darkred", linestyle='--', marker='s', label='Grains (Ice)')
     ax.set_xlabel('Radius R [AU]')
     ax.set_ylabel(f'Midplane Atomic Ratio [{s1}/{s2}]')
-    if starratio: ax.axhline(starratio, color='black', linestyle=':')
+    if starratio: ax.axhline(starratio, color='black', linestyle='--',label=f"{s1}/{s2} of star")
     ax.grid(True, linestyle=':')
     ax.legend()
+    ax.set_title(f"{s1}/{s2} at t = {(PIPE[-1].chemistry)[10]['time'][itime]/(365.25*86400)):.0f} yrs")
     plt.show()
 
+
+import re
+from pathlib import Path
+import numpy as np
+import matplotlib.pyplot as plt
+from matplotlib.collections import PolyCollection
+from matplotlib.colors import LogNorm, Normalize
+from scipy.interpolate import griddata
 
 def plot_grain_properties_midplane_comparison(PIPE, MODEL_NAMES, key_list=['CO'], itime=-1, fracab=True,
                                              verbose=True, xlim=None, ylim=None, Tmin=None, Tmax=None, vmin=None, vmax=None,
@@ -2223,11 +2689,13 @@ def plot_grain_properties_midplane_comparison(PIPE, MODEL_NAMES, key_list=['CO']
     y_centers = np.arange(num_grain_bins)
     y_edges = np.arange(num_grain_bins + 1) - 0.5
 
-    # Render Dust Temperatures
+    # --- FIX 1: Safe Global Temperature Initialization ---
     if common_scale:
         all_temps = np.concatenate([model_data[m]['grain_temps'].flatten() for m in model_names])
-        actual_tmin, actual_tmax = Tmin if Tmin else all_temps.min(), Tmax if Tmax else all_temps.max()
+        global_tmin = Tmin if Tmin is not None else all_temps.min()
+        global_tmax = Tmax if Tmax is not None else all_temps.max()
 
+    # Render Dust Temperatures
     for col_idx, p_name in enumerate(model_names):
         ax = axes[0, col_idx]
         struct = model_data[p_name]
@@ -2239,6 +2707,13 @@ def plot_grain_properties_midplane_comparison(PIPE, MODEL_NAMES, key_list=['CO']
         points_Y = [y for _ in radii for y in y_centers]
         grid_T = griddata((points_R, points_Y), temps.flatten(), (grid_R, grid_Y), method='cubic')
         
+        # --- FIX 2: Handle case where common_scale is False ---
+        if common_scale:
+            actual_tmin, actual_tmax = global_tmin, global_tmax
+        else:
+            actual_tmin = Tmin if Tmin is not None else temps.min()
+            actual_tmax = Tmax if Tmax is not None else temps.max()
+
         cf = ax.contourf(grid_R, grid_Y, grid_T, levels=np.linspace(actual_tmin, actual_tmax, 50), cmap=temp_colormap)
         fig.colorbar(cf, ax=ax, label=r"$T_{\rm grain}$ [K]")
         ax.set_title(f"{p_name}\nGrain Temp $T_{{grain}}$", fontsize=11, fontweight='bold')
@@ -2246,6 +2721,16 @@ def plot_grain_properties_midplane_comparison(PIPE, MODEL_NAMES, key_list=['CO']
     # Render Chemical Species Profiles
     for row_idx, key in enumerate(key_list):
         current_row = row_idx + 1
+        
+        # Calculate unified abundance scale for the row if species_scale_common is True
+        if species_scale_common:
+            all_vals = []
+            for m in model_names:
+                all_vals.extend(np.array(model_data[m]['abundance_matrices'][key]).flatten())
+            all_vals = np.array(all_vals)
+            row_vmin = vmin if vmin is not None else (all_vals[all_vals > 0].min() if len(all_vals[all_vals > 0]) > 0 else 1e-15)
+            row_vmax = vmax if vmax is not None else all_vals.max()
+
         for col_idx, p_name in enumerate(model_names):
             ax = axes[current_row, col_idx]
             struct = model_data[p_name]
@@ -2260,8 +2745,13 @@ def plot_grain_properties_midplane_comparison(PIPE, MODEL_NAMES, key_list=['CO']
                     values.append(ab_matrix[i][j])
             
             vals_array = np.array(values)
-            v_min_loc = vals_array[vals_array>0].min() if len(vals_array[vals_array>0])>0 else 1e-15
-            v_max_loc = vals_array.max()
+            
+            if species_scale_common:
+                v_min_loc, v_max_loc = row_vmin, row_vmax
+            else:
+                v_min_loc = vmin if vmin is not None else (vals_array[vals_array>0].min() if len(vals_array[vals_array>0])>0 else 1e-15)
+                v_max_loc = vmax if vmax is not None else vals_array.max()
+            
             norm = LogNorm(vmin=v_min_loc, vmax=v_max_loc) if v_max_loc/v_min_loc > 10 else Normalize(vmin=v_min_loc, vmax=v_max_loc)
             
             coll = PolyCollection(polygons, array=vals_array, cmap=ab_colormap, norm=norm, edgecolors='none')
@@ -2269,9 +2759,13 @@ def plot_grain_properties_midplane_comparison(PIPE, MODEL_NAMES, key_list=['CO']
             fig.colorbar(plt.cm.ScalarMappable(norm=norm, cmap=ab_colormap), ax=ax, label="Ice Abundance")
             ax.set_title(f"{p_name}\n{clean_molec(key)} Ice Profile", fontsize=11)
 
+    # --- FIX 3: Robust y-axis generation ---
+    # Pull sizes from the first radius chunk of the first model to populate y-axis tick values cleanly
+    representative_sizes = model_data[model_names[0]]['grain_sizes'][0]
+    
     for ax in axes.flatten():
         ax.set_yticks(y_centers)
-        ax.set_yticklabels([f"{s:.1f}" for size_row in model_data[model_names[0]]['grain_sizes'] for s in size_row][:num_grain_bins])
+        ax.set_yticklabels([f"{s:.1f}" for s in representative_sizes])
         ax.set_xlim(xlim if xlim else (model_data[model_names[0]]['disk_radii'].min(), model_data[model_names[0]]['disk_radii'].max()))
         ax.set_ylim(ylim if ylim else (y_edges[0], y_edges[-1]))
         ax.set_xlabel('Radius R [AU]')
@@ -2302,7 +2796,7 @@ def density2D_grid_comparison(PIPE, MODEL_NAMES, vmin=1e-30, vmax=1e-15, cmap='g
         dens_vals = pd.read_table(base_path + 'dust_density.inp', engine='python', header=None, skiprows=3)[0].values
         nspecies = int(len(dens_vals) / (nr * nt))
         dens_tensor = np.reshape(dens_vals, (nspecies, nt, nr))
-
+        dens_tensor = dens_tensor.copy()
         r_edge = g_vals[:nr+1] / autocm
         theta_edge = g_vals[nr+1:nr+1+nt+1].copy()
         theta_edge[-1] = np.pi
@@ -2428,4 +2922,285 @@ def temperature2D_grid_comparison(PIPE, MODEL_NAMES, vmin=1.0, vmax=1e3, cmap='g
     for ax in axes[-1, :]: ax.set_xlabel('r [au]', fontsize=11)
     for ax in axes[:, 0]: ax.set_ylabel('z [au]', fontsize=11)
     fig.subplots_adjust(right=0.90, left=0.08, bottom=0.08, top=0.90, hspace=0.35, wspace=0.22)
+    plt.show()
+
+
+from scipy.interpolate import griddata
+
+def plot_gas_fraction_map(PIPE,
+                          MODEL_NAMES,
+                          molecule="CO",
+                          itime=-1,
+                          threshold=50.0,
+                          overlay_color='black',
+                          verbose=True,
+                          xlim=None,
+                          ylim=None,
+                          rmin=None,
+                          rmax=None,
+                          colormap="RdYlBu_r"):
+    """
+    Plots smoothly interpolated 2D vertical cross-section maps (R vs z) of the 
+    gas-phase fraction of a chemical species relative to its total volumetric 
+    budget (Gas + Surface J + Mantle K), compared side-by-side across multiple models.
+
+    Parameters:
+    -----------
+    PIPE : list
+        Collection of model pipe objects to analyze. Each object must feature 
+        `.chemistry` and `.chempath` attributes.
+    MODEL_NAMES : list of str
+        Display names assigned to the models for subplot headers.
+    molecule : str, default "CO"
+        Formula of the target chemical carrier species (e.g., 'CO').
+    itime : int, default -1
+        Index of the simulation timestep slice to extract.
+    threshold : float or list/tuple, default 50.0
+        Percentage level(s) for the graphic overlay line or boundary zone.
+    overlay_color : str, default 'black'
+        Visual line or edge fill color of the threshold graphic indicator.
+    verbose : bool, default True
+        If True, prints execution exception diagnostic reports.
+    xlim, ylim : tuple, optional
+        Custom manual bounding cropping dimensions for the R and z axes [AU].
+    rmin, rmax : float, optional
+        Cylindrical radial range filters to constrain source data [AU].
+    colormap : str, default "RdYlBu_r"
+        Matplotlib sequential or divergent colormap string identifier.
+    """
+    if len(MODEL_NAMES) != len(PIPE):
+        raise ValueError("MODEL_NAMES and PIPE must have the same length")
+        
+    if len(MODEL_NAMES) != len(set(MODEL_NAMES)):
+        MODEL_NAMES = [f"Model {i+1}" for i in range(len(PIPE))]
+
+    AU_to_cm = 1.496e13
+
+    # --- Internal formatting helper ---
+    def clean_molec(mol_name):
+        f = re.sub(r"(\d+)", r"_{\1}", mol_name)
+        f = re.sub(r"([+-]+)$", r"^{\1}", f)
+        return f"${f}$"
+
+    num_models = len(PIPE)
+    fig, axes = plt.subplots(1, num_models, figsize=(6 * num_models, 5), squeeze=False, sharex=True, sharey=True)
+    
+    global_max_z = 0.0
+    cf = None
+    time_years_string = None
+
+    # Loop over models to extract data and render each subplot panel individually
+    for col_idx, p in enumerate(PIPE):
+        p_name = getattr(p, 'name', MODEL_NAMES[col_idx])
+        ax = axes[0, col_idx]
+        
+        main_output_dict = p.chemistry
+        chempath = Path(p.chempath)
+        
+        # --- Radial key harvesting and filtering ---
+        radii_map = {}
+        for original_key in main_output_dict.keys():
+            digits = re.findall(r'\d+', str(original_key))
+            if digits:
+                try:
+                    radii_map[int(digits[0])] = original_key
+                except ValueError:
+                    continue
+                    
+        extracted_radii = sorted(list(radii_map.keys()))
+        
+        sorted_radii = []
+        for r in extracted_radii:
+            if rmin is not None and r < rmin: continue
+            if rmax is not None and r > rmax: continue
+            sorted_radii.append(r)
+
+        if not sorted_radii:
+            if verbose: print(f"No columns found within specified boundaries.")
+            continue
+
+        disk_radii = []
+        grid_all_z = []
+        scat_R = []
+        scat_Z = []
+        scat_Perc = []
+
+        # --- Reconstruct radial grid cell edges ---
+        if len(sorted_radii) > 1:
+            r_midshifts = 0.5 * np.diff(sorted_radii)
+            r_edges = [sorted_radii[0] - r_midshifts[0]] + [sorted_radii[i] + r_midshifts[i] for i in range(len(r_midshifts))] + [sorted_radii[-1] + r_midshifts[-1]]
+        else:
+            r_edges = [sorted_radii[0] - 0.5, sorted_radii[0] + 0.5]
+
+        # --- Parse physical and chemical profiles ---
+        for i, r_val in enumerate(sorted_radii):
+            file_path = chempath / f"{r_val}AU" / "1D_static.dat"
+            if not os.path.exists(file_path):
+                if verbose: print(f"File not found: {file_path}. Skipping radius.")
+                continue
+                
+            orig_key = radii_map[r_val]
+            sub_dict = main_output_dict[orig_key]
+            abundance_array = sub_dict['abundances']
+            nH_profile = sub_dict["H_number_density"][itime, :]  
+            available_species = abundance_array.coords['species'].values
+            
+            try:
+                z_points = np.loadtxt(file_path, comments='!', usecols=0)
+            except Exception as e:
+                if verbose: print(f"Error loading {file_path}: {e}")
+                continue
+                
+            grid_all_z.extend(list(z_points))
+
+            # Reconstruct vertical grid cell edges
+            if len(z_points) > 1:
+                z_midshifts = 0.5 * np.diff(z_points)
+                z_edges = [z_points[0] - z_midshifts[0]] + [z_points[j] + z_midshifts[j] for j in range(len(z_midshifts))] + [max(0.0, z_points[-1] + z_midshifts[-1])]
+                dz_cells = np.abs(np.diff(z_edges))
+            else:
+                z_edges = [max(0.0, z_points[0] - 0.5), z_points[0] + 0.5]
+                dz_cells = np.array([1.0])
+                
+            global_max_z = max(global_max_z, max(z_edges))
+            disk_radii.append(r_val)
+            
+            # Determine cell radial width and center in cm
+            r_left, r_right = r_edges[i], r_edges[i+1]
+            dR = (r_right - r_left) * AU_to_cm
+            R_center = float(r_val) * AU_to_cm
+            
+            # Identify gas and solid phase tokens for all size bins
+            gas_name = molecule
+            ice_names = []
+            for sp in available_species:
+                if sp.endswith(molecule) and (sp.startswith('J') or sp.startswith('K')):
+                    if re.match(r'^[JK]\d+' + re.escape(molecule) + r'$', sp):
+                        ice_names.append(sp)
+
+            y_abundances = abundance_array.isel(time=itime)
+
+            # Calculate absolute gas populations integrated over cell volumes
+            for j in range(len(z_points)):
+                dz = dz_cells[j] * AU_to_cm
+                cell_volume = 2 * np.pi * R_center * dR * dz
+                nH_local = float(nH_profile[j])
+                
+                y_gas = float(y_abundances.sel(species=gas_name).values[j]) if gas_name in available_species else 0.0
+                
+                y_ice = 0.0
+                for ice_sp in ice_names:
+                    y_ice += float(y_abundances.sel(species=ice_sp).values[j])
+                    
+                n_abs_gas = y_gas * nH_local * cell_volume
+                n_abs_ice = y_ice * nH_local * cell_volume
+                total_particles = n_abs_gas + n_abs_ice
+                
+                if total_particles > 0.0:
+                    gas_percentage = (n_abs_gas / total_particles) * 100.0
+                else:
+                    gas_percentage = 100.0
+
+                scat_R.append(r_val)
+                scat_Z.append(z_points[j])
+                scat_Perc.append(gas_percentage)
+                
+                if time_years_string is None:
+                    try:
+                        time_seconds = abundance_array.coords['time'].values[itime]
+                        time_years_string = f"{time_seconds/3.156e7:.0f}"
+                    except:
+                        pass
+
+        if not scat_R:
+            continue
+
+        scat_R = np.array(scat_R)
+        scat_Z = np.array(scat_Z)
+        scat_Perc = np.array(scat_Perc)
+        disk_radii_arr = np.array(disk_radii)
+
+        # Generate a fine regular grid for 2D interpolation
+        grid_R, grid_Z = np.meshgrid(
+            np.linspace(disk_radii_arr.min(), disk_radii_arr.max(), 400),
+            np.linspace(min(grid_all_z), max(grid_all_z), 400)
+        )
+
+        # Use linear interpolation for the background map
+        grid_Percentage = griddata((scat_R, scat_Z), scat_Perc, (grid_R, grid_Z), method='linear')
+
+        contour_levels = np.linspace(0.0, 100.0, 101)
+        color_norm = plt.cm.colors.Normalize(vmin=0.0, vmax=100.0)
+
+        # Render background color fields
+        cf = ax.contourf(grid_R, grid_Z, grid_Percentage, levels=contour_levels, cmap=colormap, norm=color_norm, extend='both')
+        
+        # Use cubic interpolation strictly for smoother contour lines
+        grid_Percentage_smooth = griddata((scat_R, scat_Z), scat_Perc, (grid_R, grid_Z), method='cubic')
+
+        # --- Render overlays and panel legends ---
+        try:
+            if isinstance(threshold, (list, tuple)) and len(threshold) == 2:
+                t_low = float(min(threshold))
+                t_high = float(max(threshold))
+                
+                cs_zone = ax.contourf(grid_R, grid_Z, grid_Percentage_smooth, 
+                                      levels=[t_low, t_high], 
+                                      colors='none',      
+                                      hatches=['////'])   
+                
+                if hasattr(cs_zone, 'collections') and cs_zone.collections:
+                    target_collections = cs_zone.collections
+                elif hasattr(cs_zone, 'artists') and cs_zone.artists:
+                    target_collections = cs_zone.artists
+                else:
+                    target_collections = [ax.collections[-1]]
+                    
+                for col in target_collections:
+                    col.set_edgecolor(overlay_color)
+                    col.set_linewidth(0.5) 
+                
+                hatch_patch = plt.Rectangle((0, 0), 1, 1, fill=False, edgecolor=overlay_color, hatch='////', linewidth=0.5)
+                ax.legend(handles=[hatch_patch], labels=[f'Transition ({t_low:.0f}%-{t_high:.0f}%)'], loc='upper right', frameon=True, fontsize=9)
+                
+            else:
+                t_val = float(threshold)
+                # Draw the contour line onto the plot
+                ax.contour(grid_R, grid_Z, grid_Percentage_smooth, levels=[t_val], colors=overlay_color, linestyles='solid', linewidths=1.7)
+                
+                # FIXED: Use a Line2D proxy artist to safely bypass QuadContourSet warnings
+                from matplotlib.lines import Line2D
+                proxy_line = Line2D([0], [0], color=overlay_color, linestyle='solid', linewidth=1.7)
+                
+                ax.legend(handles=[proxy_line], labels=[f'Snowline ({t_val:.0f}%)'], loc='upper right', frameon=True, fontsize=9)
+                    
+        except Exception as e:
+            if verbose: print(f"Warning: Could not render threshold overlay structures. {e}")
+
+        # --- Axes properties and bounds ---
+        ax.set_xlabel('Disk Radius R [AU]', fontsize=11)
+        ax.set_ylabel('Altitude $z$ [AU]', fontsize=11)
+        ax.set_title(f"{p_name}", fontsize=12, fontweight='bold')
+        ax.grid(True, linestyle=":", alpha=0.3)
+        ax.tick_params(labelsize=11)
+        
+        if xlim is not None:
+            ax.set_xlim(xlim)
+
+    # Global formatting, colorbar outside loop framework
+    if cf is not None:
+        cbar_ax = fig.add_axes([0.91, 0.15, 0.015, 0.7])
+        fig.colorbar(cf, cax=cbar_ax, label=f"Gas-phase Fraction [ % of Total {clean_molec(molecule)} (Gas+J+K) ]", 
+                     ticks=np.linspace(0, 100, 11), extendfrac=0)
+                          
+    for ax in axes.flatten():
+        if ylim is not None:
+            ax.set_ylim(ylim)
+        else:
+            ax.set_ylim(0.0, global_max_z * 1.05)
+
+    title_suffix = f' — $t = {time_years_string}$ years' if time_years_string else ''
+    fig.suptitle(f"Gas-phase Volumetric Reservoir Distribution Map — {clean_molec(molecule)}{title_suffix}", fontsize=13, fontweight='bold', y=0.98)
+    
+    plt.subplots_adjust(right=0.89, left=0.08, bottom=0.15, top=0.85, wspace=0.15)
     plt.show()
