@@ -621,8 +621,14 @@ def to_spherical(chemmodel, nr, nt, dist, theta, struct='numberdens_species'):
     #   right = 0.0             (z > highest z in column → above truncation)
     data_2d = np.zeros((len(r_naut), len(z_common)))
     for ir, r in enumerate(r_naut):
-        z_asc  = chemmodel[r]['z'][::-1]          # ascending
-        val_asc = chemmodel[r][struct][::-1]       # corresponding values
+        z_asc   = np.asarray(chemmodel[r]['z']).ravel()[::-1]      # ascending
+        val_asc = np.asarray(chemmodel[r][struct]).ravel()[::-1]   # corresponding values
+        if len(z_asc) != len(val_asc):
+            raise ValueError(
+                f"to_spherical: length mismatch at r={r} AU — "
+                f"z has {len(z_asc)} points but '{struct}' has {len(val_asc)} points. "
+                f"Check that 1D_static.dat and abundances.out are consistent."
+            )
         data_2d[ir] = np.interp(z_common, z_asc, val_asc,
                                 left=val_asc[0], right=0.0)
 

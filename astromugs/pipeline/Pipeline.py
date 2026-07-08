@@ -878,6 +878,17 @@ class Pipeline:
                     sig_g = np.interp(r, r_custom, siggas_table)
                     z_cm = self.grid.zchem[idx, :] * autocm
                     n_gas[idx, :] = (sig_g / (np.sqrt(2*np.pi) * hg[idx] * mu * amu)) * np.exp(-z_cm**2 / (2*hg[idx]**2))
+            elif self.params.disk.sigma_compute != 'custom':
+                print(
+                    "\nWARNING: coupling_dens=True but self.params.disk.sigma_compute = "
+                    f"'{self.params.disk.sigma_compute}' (default is 'model', not 'custom').\n"
+                    "Gas density will be set to (total dust mass) / dtogas everywhere -- a "
+                    "fixed dust-to-gas ratio -- NOT from any independent gas surface density.\n"
+                    "Did you mean to use a custom gas profile but forgot to re-run your disk "
+                    "parameter setup (e.g. pipe1.params.disk.sigma_compute = 'custom' and "
+                    ".sigma_path), for instance after restarting the kernel and reusing "
+                    "existing RADMC-3D files? Set those before calling write_nautilus() if so.\n"
+                )
         if coupling_temp == True:
            if not self.grid.temperature:
                print('coupling_temp==True: The file thermal/dust_temperature.dat is not present or is corrupted. Chemistry model cannot created.')

@@ -514,7 +514,7 @@ def midplane_temp(path='thermal/', xlim=None, ylim=None):
     #-----profiles
     midtemp = pd.DataFrame(data=midtemp.transpose())
     for ispec in range(0, nbspecies):
-        ax.plot(radii, midtemp[ispec].rolling(window=6, center=True).mean(), linewidth=2, linestyle='-', label='bin: {}'.format(ispec+1))
+        ax.plot(radii, midtemp[ispec].rolling(window=2, center=True).mean(), linewidth=2, linestyle='-', label='bin: {}'.format(ispec+1))
         if xlim:
             ax.set_xlim(xlim)
         if ylim:
