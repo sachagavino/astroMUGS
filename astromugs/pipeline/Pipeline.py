@@ -529,7 +529,7 @@ class Pipeline:
         line_format : str, optional
             Format of the molecular data file (e.g., 'leiden'). Default is
             'leiden'.
-        species : str, optional
+        species : str or list, optional
             Chemical species for the line file. Default is 'CO'.
         star_mass : float, optional
             Stellar mass in solar masses, used for Keplerian velocity

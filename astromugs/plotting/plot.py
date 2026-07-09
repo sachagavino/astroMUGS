@@ -1,24 +1,31 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 """
-file name: plot
-@author: Sacha Gavino
-last update: Jan 22
-language: PYTHON 3
-__________________________________________________________________________________________
-short description:  plotting of the disk thermal model
-__________________________________________________________________________________________
+File name: plot_test.py
+Author: Sacha Gavino & François-Xavier Meyer
+Language: PYTHON 3
+Description: Comprehensive plotting suite for disk thermal models and chemical evolution structures (RADMC-3D & Nautilus).
 """
-import glob, sys
 
+import glob
+import sys
 import os
+import re
+from pathlib import Path
 import numpy as np
 import pandas as pd
-
+import xarray as xr
 import matplotlib.pyplot as plt
-from matplotlib.colors import LogNorm
+from matplotlib.colors import LogNorm, Normalize
+from matplotlib.collections import PolyCollection
+from mpl_toolkits.axes_grid1 import make_axes_locatable
+from scipy.interpolate import griddata
 
-from astromugs.constants.constants import autocm
+# Fallback global constant if astromugs is not installed locally
+try:
+    from astromugs.constants.constants import autocm
+except ImportError:
+    autocm = 1.495978707e13  # 1 AU in cm
 
 
 def density2D_grid(path='thermal/', vmin=1e-30, vmax=1e-15, cmap='gnuplot2', dens_type='mass',
@@ -955,6 +962,151 @@ def numberdens(species='CO', path='thermal/', vmin=1e0, vmax=1e8, cmap='gnuplot2
     plt.show()
 
 
+def plot_velocity_and_temperature(path='thermal/', 
+                                  vmin=0.0, vmax=10.0, logscale=False, cmap_v='viridis',
+                                  Tmin=10.0, Tmax=1000.0, logscale_T=True, cmap_T='inferno',
+                                  xlim=None, ylim=None, figsize=None,
+                                  save=False, savename='gas_properties.pdf'):
+    """Plot a 2D side-by-side comparison of gas velocity (v_phi) and gas temperature.
+
+    Extracts the azimuthal Keplerian velocity component from a 3D spherical 
+    velocity file and the thermal gas structure from a temperature file, both 
+    formatted for RADMC-3D line transfer calculations. Displays them as a 
+    meridional (R, Z) cross-section slice.
+
+    Parameters
+    ----------
+    path : str, optional
+        Path to the directory containing the RADMC-3D input files. Default is 
+        ``'thermal/'``.
+    vmin, vmax : float, optional
+        Colour scale limits for the azimuthal velocity v_phi [km/s]. Default 
+        is ``0.0`` and ``10.0``.
+    logscale : bool, optional
+        If True, plot the velocity using a logarithmic color scale. Default 
+        is False.
+    cmap_v : str, optional
+        Colormap name for velocity field. Default is ``'viridis'``.
+    Tmin, Tmax : float, optional
+        Colour scale limits for gas kinetic temperature [K]. Default is 
+        ``10.0`` and ``1000.0``.
+    logscale_T : bool, optional
+        If True, plot the temperature using a logarithmic color scale. Default 
+        is True.
+    cmap_T : str, optional
+        Colormap name for the thermal structure. Default is ``'inferno'``.
+    xlim, ylim : tuple, optional
+        Spatial axis limits (R, Z) in astronomical units [au], shared by 
+        both panels.
+    figsize : tuple or None, optional
+        Figure dimensions. Default is ``(12, 5)`` for side-by-side layout.
+    save : bool, optional
+        Save the rendered figure to ``savename``. Default is False.
+    savename : str, optional
+        Output filename when ``save=True``. Default is ``'gas_properties.pdf'``.
+    """
+    # --- Grid: cell centres (shape nt × nr) ---
+    grid = pd.read_table(path + 'amr_grid.inp', engine='python', skiprows=5)
+    nr = int(grid.columns[0].split("  ")[0])
+    nt = int(grid.columns[0].split("  ")[1])
+    grid = np.array(grid[grid.columns[0]].values, copy=True)
+
+    # Conversion of spherical radial grid boundaries from cm to au
+    r_edge     = grid[:nr+1] / autocm
+    theta_edge = grid[nr+1:nr+1+nt+1]
+    theta_edge[-1] = np.pi
+    
+    # Calculation of cell centres from boundary edges via midpoints
+    r_cen     = 0.5 * (r_edge[:-1]     + r_edge[1:])
+    theta_cen = 0.5 * (theta_edge[:-1] + theta_edge[1:])
+    rr, tt = np.meshgrid(r_cen, theta_cen)          # (nt, nr)
+    
+    # Transformation from spherical polar (r, theta) to cylindrical (R, Z) coordinates
+    R = rr * np.sin(tt)
+    Z = rr * np.cos(tt)
+
+    if figsize is None:
+        figsize = (12, 5)
+
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=figsize, sharex=True, sharey=True)
+
+    if logscale:
+        if vmin <= 0: vmin = 1e-2
+        norm_v = LogNorm(vmin=vmin, vmax=vmax)
+    else:
+        norm_v = Normalize(vmin=vmin, vmax=vmax)
+
+    # RADMC-3D velocity file contains columns for (v_r, v_theta, v_phi)
+    vel_data = pd.read_table(path + 'gas_velocity.inp', engine='python', 
+                             header=None, skiprows=2, sep=r'\s+')
+    
+    # Extracting the 3rd column (index 2) for v_phi and converting from cm/s to km/s
+    vphi_all = vel_data[2].values / 1e5
+    
+    # Determining azimuthal grid size to reconstruct the nested loops (phi, theta, r)
+    nphi = len(vphi_all) // (nt * nr)
+    vphi_3d = vphi_all.reshape(nphi, nt, nr)
+    vphi_2d = vphi_3d[0, :, :]  # Meridional slice at phi = 0
+
+    im1 = ax1.pcolormesh(R, Z, vphi_2d, cmap=cmap_v, shading='gouraud',
+                         norm=norm_v, rasterized=True)
+    
+    title_v = r'Gas Velocity $v_\phi$ (Log)' if logscale else r'Gas Velocity $v_\phi$'
+    ax1.set_title(title_v, fontsize=13)
+    ax1.set_xlabel('R [au]', fontsize=12)
+    ax1.set_ylabel('Z [au]', fontsize=12)
+    ax1.tick_params(labelsize=11)
+
+    temp_data = pd.read_table(path + 'gas_temperature.inp', engine='python', 
+                              header=None, skiprows=2)
+    t_all = temp_data[0].values
+    
+    # Reconstructing the 3D grid layout matching the nested cell indexing (phi, theta, r)
+    t_3d = t_all.reshape(nphi, nt, nr)
+    t_2d = t_3d[0, :, :]  # Meridional slice at phi = 0
+
+    if Tmin is None:
+        # Exclusion of unphysical values (<= 0) when evaluating bounds under LogNorm
+        Tmin = np.min(t_2d[t_2d > 0]) if logscale_T else np.min(t_2d)
+    if Tmax is None:
+        Tmax = np.max(t_2d)
+
+    if logscale_T:
+        if Tmin <= 0: 
+            Tmin = 1e-1
+        norm_T = LogNorm(vmin=Tmin, vmax=Tmax)
+    else:
+        norm_T = Normalize(vmin=Tmin, vmax=Tmax)
+
+    im2 = ax2.pcolormesh(R, Z, t_2d, cmap=cmap_T, shading='gouraud',
+                         norm=norm_T, rasterized=True)
+    
+    title_T = 'Gas Temperature'
+    ax2.set_title(title_T, fontsize=13)
+    ax2.set_xlabel('R [au]', fontsize=12)
+    ax2.tick_params(labelsize=11)
+
+    if xlim:
+        ax1.set_xlim(xlim)
+    if ylim:
+        ax1.set_ylim(ylim)
+
+    divider1 = make_axes_locatable(ax1)
+    cax1 = divider1.append_axes("right", size="5%", pad=0.07)
+    fig.colorbar(im1, cax=cax1, label=r'$v_\phi$ [km s$^{-1}$]')
+
+    divider2 = make_axes_locatable(ax2)
+    cax2 = divider2.append_axes("right", size="5%", pad=0.07)
+    fig.colorbar(im2, cax=cax2, label=r'$T_{\rm gas}$ [K]')
+
+    fig.tight_layout()
+
+    if save:
+        fig.savefig(savename, bbox_inches='tight')
+
+    plt.show()
+
+
 def static(chempath='chemistry/', column='nH', vmin=1, vmax=50, iso=None, cmap='gnuplot2',
            xlim=None, ylim=None, figsize=(6, 6), save=False, savename='filename.pdf'):
     """Plot a 2D map of a column from the 1D_static.dat files.
@@ -1199,4 +1351,2832 @@ def nmgc_grainsizes(chempath='chemistry/', quantity='Td', vmin=None, vmax=None, 
     if save:
         fig.savefig(savename, bbox_inches='tight')
 
+    plt.show()
+
+
+import os
+import re
+from pathlib import Path
+import numpy as np
+import matplotlib.pyplot as plt
+from matplotlib.collections import PolyCollection
+from matplotlib.colors import LogNorm, Normalize
+
+def plot_outputs_nautilus(PIPE, MODEL_NAMES, itime=-1, MODE='chemistry', key_list=['CO'],
+                          fracab=True, verbose=True, xlim=None, ylim=None, colormap="plasma",
+                          vmin=None, vmax=None, common_scale=True):
+    """
+    Plots a 2D vertical poloidal cross-section ($R$ vs. $z$) comparison across different 
+    astrochemical model simulations.
+
+    This function processes simulation outputs structured across varying radial distances (R) 
+    and vertical heights (z). It dynamically constructs non-uniform rectilinear grid cells 
+    (polygons) from 1D vertical columns sampled at discrete radial points, matching the spatial 
+    discretization typical of protoplanetary disk or envelope models. It handles both physical 
+    properties and chemical species distributions.
+
+    Parameters
+    ----------
+    PIPE : list
+        A list of pipeline data objects containing simulation outputs. Each object must feature 
+        a `.chemistry` dictionary mapping radial distances (string format, e.g., '100AU') to 
+        spatiotemporal sub-dictionaries, and a `.chempath` attribute pointing to the raw data.
+    MODEL_NAMES : list of str
+        The labels identifier corresponding to each simulation pipeline configuration.
+    itime : int, optional
+        The temporal index to be extracted and visualized from the dataset. Defaults to -1 (the final snapshot).
+    MODE : {'chemistry', 'physical'}, optional
+        The operational mode determining data parsing logic. 'chemistry' evaluates fractional abundances 
+        or number densities of chemical species, while 'physical' extracts structural properties 
+        (e.g., gas temperature, dust extinction). Defaults to 'chemistry'.
+    key_list : list of str, optional
+        The list of keys (species names or physical variable names) to plot along the rows of the subplots. 
+        Defaults to ['CO'].
+    fracab : bool, optional
+        If True, visualizes species abundances relative to total hydrogen ($n_X/n_H$). If False, scales the 
+        values by the local hydrogen number density to plot absolute volume densities ($n_X$ [cm$^{-3}$]). 
+        Only applicable when `MODE='chemistry'`. Defaults to True.
+    verbose : bool, optional
+        Enables runtime tracking and error output for missing metadata files or unparsed data streams. Defaults to True.
+    xlim : tuple of float, optional
+        The horizontal spatial limits in Astronomical Units (AU) for the plots. Defaults to auto-scale.
+    ylim : tuple of float, optional
+        The vertical spatial limits in Astronomical Units (AU) for the plots. Defaults to auto-scale.
+    colormap : str, optional
+        The Matplotlib colormap used to render spatial gradients. Defaults to "plasma".
+    vmin : float, optional
+        The explicit minimum scaling limit for the colorbar.
+    vmax : float, optional
+        The explicit maximum scaling limit for the colorbar.
+    common_scale : bool, optional
+        If True, enforces a uniform min/max dynamic range across all model columns for a given 
+        variable to permit direct cross-model structural comparison. Defaults to True.
+
+    Raises
+    ------
+    ValueError
+        If the dimensions of `MODEL_NAMES` and `PIPE` do not match.
+    """
+    # Validate that each data pipeline maps to exactly one tracking identifier label
+    if len(MODEL_NAMES) != len(PIPE):
+        raise ValueError("MODEL_NAMES and PIPE must have the same length")
+
+    # Coerce single string inputs into a iterable list format
+    if isinstance(key_list, str):
+        key_list = [key_list]
+
+    # Fallback routine: enforce generic unique labeling if naming collisions occur
+    if len(MODEL_NAMES) != len(set(MODEL_NAMES)):
+        MODEL_NAMES = [f"Model {i+1}" for i in range(len(PIPE))]
+
+    def title_mol(mol_name, frac, path, verbose):
+        """Parses raw astrochemical species strings into LaTeX-formatted mathematical labels."""
+        # Detect grain surface identifiers ('J' for surface adsorption sites, 'K' for ice mantle layers)
+        m = re.match(r"^([JK])(\d+)", mol_name)
+        env = (
+            f"{'surface' if m.group(1) == 'J' else 'mantle'} at grain size = {get_grain_size_in_um(Path(path)/'1D_grain_sizes.in', m.group(2), verbose=verbose)} µm"
+            if m else "none"
+        )
+        
+        # Strip phase prefixes to isolate the underlying chemical formula
+        raw = re.sub(r"^[JK]\d+", "", mol_name)
+        
+        # Insert LaTeX subscript formatting for stoichiometric integers
+        f = re.sub(r"(\d+)", r"_{\1}", raw)
+        
+        # Insert LaTeX superscript formatting for ionic charge signs (+, -)
+        f = re.sub(r"([+-]+)$", r"^{\1}", f)
+        
+        # Append corresponding physical units depending on relative or absolute concentration choices
+        if env != "none": 
+            return f"${f}$ [$n_{{{f}}}/n_H$]\n({env})" if frac else f"${f}$ [$n_{{{f}}}$] [cm$^{{-3}}$]\n({env})"
+        return f"${f}$ [$n_{{{f}}}/n_H$]" if frac else f"${f}$ [$n_{{{f}}}$] [cm$^{{-3}}$]"
+
+    def title_phys(variable):
+        """Generates standard scientific labels and physical units for macroscopic properties."""
+        name = variable.replace("_", " ").title()
+        if "temperature" in name.lower(): name += " [K]"
+        elif "extinction" in name.lower(): name += " [mag]"
+        elif "density" in name.lower(): name += " [$cm^{-3}$]"
+        return name
+
+    def get_grain_size_in_um(file_path, bin_index, verbose=False):
+        """Parses size-discretized dust distribution profiles to extract explicit grain radii."""
+        try:
+            with open(file_path, 'r') as file:
+                for line in file:
+                    line = line.strip()
+                    if not line or line.startswith('!'): continue
+                    if '!' in line: line = line.split('!')[0].strip() # Strip line-end comments
+                    values = [float(val) for val in line.split()]
+                    if not values: continue
+                    # Extract spatial parameters; convert from cm scale to micrometers (um)
+                    num_grains = len(values) // 4
+                    return values[:num_grains][int(bin_index) - 1] * 10000.0
+            return None
+        except FileNotFoundError:
+            return None
+    
+    model_data = {}
+    all_global_values = []
+    
+    # --- DATA EXTRACTION LOOP ---
+    # Iterates over each pipeline entry to extract and assemble spatial tracking grids
+    for p_idx, p in enumerate(PIPE):
+        p_name = getattr(p, 'name', f"{MODEL_NAMES[p_idx]}")
+        main_output_dict = p.chemistry
+        chempath = Path(p.chempath)
+        species_data = {k: [] for k in key_list}
+        
+        # Process individual radial bins found within the model pipeline
+        for r_value in main_output_dict.keys():
+            file_path = os.path.join(chempath, f"{r_value}AU", "1D_static.dat")
+            if os.path.exists(file_path):
+                try:
+                    # Load 1D vertical altitude profile grid points [AU]
+                    z_points = np.loadtxt(file_path, comments='!', usecols=0)
+                    sub_dict = main_output_dict[r_value]
+                    
+                    for key in key_list:
+                        if MODE == 'physical':
+                            v_points = sub_dict[key][itime, :].copy()
+                        elif MODE == 'chemistry':
+                            abundance_array = sub_dict['abundances']
+                            # Slice through Xarray-like multi-dimensional arrays along targeted coordinate fields
+                            v_points = abundance_array.isel(time=itime).sel(species=key).values.copy()
+                            # Convert fractional abundance back to absolute space if absolute densities are requested
+                            if not fracab:
+                                v_points *= sub_dict["H_number_density"][itime, :]
+                        
+                        # Verify geometry alignment between the spatial grid and value profiles
+                        if len(z_points) == len(v_points):
+                            species_data[key].append({'R': float(r_value), 'z': np.array(z_points), 'v': np.array(v_points)})
+                except Exception as e:
+                    if verbose: print(f"Error processing data tracking entry for {key} at R={r_value}: {e}")
+
+        # --- MESH GENERATION RETAINING ASYMMETRIC GRID BOUNDARIES ---
+        # Converts discrete 1D columns into contiguous 2D grid cell blocks for matplotlib PolyCollection
+        plot_structures = {}
+        for key in key_list:
+            columns_data = sorted(species_data[key], key=lambda x: x['R'])
+            if not columns_data: continue
+            polygons, values = [], []
+            radii = [col['R'] for col in columns_data]
+            
+            # Compute radial cell-edge boundary walls via mid-point shifts
+            if len(radii) > 1:
+                r_midshifts = 0.5 * np.diff(radii)
+                r_edges = [radii[0] - r_midshifts[0]] + [radii[i] + r_midshifts[i] for i in range(len(r_midshifts))] + [radii[-1] + r_midshifts[-1]]
+            else:
+                r_edges = [radii[0] - 0.5, radii[0] + 0.5]
+                
+            # Iterate through vertical columns to build explicit boundary cells
+            for i, col in enumerate(columns_data):
+                r_left, r_right = r_edges[i], r_edges[i+1]
+                z_pts, v_pts = col['z'], col['v']
+                
+                # Compute vertical cell-edge boundaries via mid-point shifts
+                z_midshifts = 0.5 * np.diff(z_pts)
+                z_edges = [z_pts[0] - z_midshifts[0]] + [z_pts[j] + z_midshifts[j] for j in range(len(z_midshifts))] + [max(0.0, z_pts[-1] + z_midshifts[-1])]
+                
+                # Assemble 4-vertex polygon coordinate chains tracking cell bounding wrappers
+                for j in range(len(v_pts)):
+                    poly = [(r_left, z_edges[j]), (r_right, z_edges[j]), (r_right, z_edges[j+1]), (r_left, z_edges[j+1])]
+                    polygons.append(poly)
+                    values.append(v_pts[j])
+                    
+            plot_structures[key] = {
+                'polygons': polygons, 'values': np.array(values), 'radii': radii,
+                'all_z': np.concatenate([c['z'] for c in columns_data])
+            }
+            all_global_values.extend(values)
+        model_data[p_name] = plot_structures
+    
+    # --- CANVAS CONFIGURATION ---
+    num_models = len(PIPE)
+    model_names = list(model_data.keys())
+    
+    # Structure layout geometry: multi-model grid mapping vs single-model multi-panel views
+    if num_models == 1:
+        cols = min(3, len(key_list))
+        rows = (len(key_list) + cols - 1) // cols
+        fig, axes = plt.subplots(rows, cols, figsize=(5 * cols, 4.5 * rows), squeeze=False)
+        axes = axes.flatten()
+    else:
+        cols = num_models
+        rows = len(key_list)
+        fig, axes = plt.subplots(rows, cols, figsize=(5 * cols, 4.5 * rows), squeeze=False)
+
+    # Automatically enforce logarithmic dynamic normalization profiles for high-dynamic-range features
+    has_log_anywhere = MODE == 'chemistry' or any("density" in k.lower() or "extinction" in k.lower() for k in key_list)
+    if common_scale and all_global_values:
+        all_global_values = np.array(all_global_values)
+        if has_log_anywhere:
+            pos_vals = all_global_values[all_global_values > 0]
+            global_vmin = vmin if vmin is not None else (max(1e-15, pos_vals.min()) if len(pos_vals) > 0 else 1e-15)
+        else:
+            global_vmin = vmin if vmin is not None else all_global_values.min()
+        global_vmax = vmax if vmax is not None else all_global_values.max()
+        
+    # --- RENDERING GENERATION EXECUTION LOOP ---
+    for row_idx, key in enumerate(key_list):
+        is_log = MODE == 'chemistry' or "density" in key.lower() or "extinction" in key.lower()
+
+        for col_idx, p_name in enumerate(model_names):
+            if key not in model_data[p_name]: continue
+            ax = axes[row_idx, col_idx] if num_models > 1 else axes[row_idx]
+            struct = model_data[p_name][key]
+            vals = struct['values']
+            
+            # Establish dynamic scaling parameters depending on evaluation configuration rules
+            if common_scale:
+                actual_vmin, actual_vmax = global_vmin, global_vmax
+            else:
+                if is_log:
+                    pos_vals = vals[vals > 0]
+                    actual_vmin = vmin if vmin is not None else (max(1e-15, pos_vals.min()) if len(pos_vals) > 0 else 1e-15)
+                else:
+                    actual_vmin = vmin if vmin is not None else vals.min()
+                actual_vmax = vmax if vmax is not None else vals.max()
+            
+            # Select proper mathematical normalization mapping transforms
+            color_norm = LogNorm(vmin=actual_vmin, vmax=actual_vmax) if is_log else Normalize(vmin=actual_vmin, vmax=actual_vmax)
+            
+            # Generate high-performance 2D unstructured mesh elements avoiding heavy pcolormesh requirements
+            coll = PolyCollection(struct['polygons'], array=vals, cmap=colormap, norm=color_norm, edgecolors='none')
+            ax.add_collection(coll)
+            
+            # Parse localized formatting labels
+            if MODE == 'physical': lab = title_phys(key)
+            elif MODE == 'chemistry': lab = title_mol(key, fracab, Path(PIPE[col_idx].chempath) / f"{int(struct['radii'][0])}AU", verbose=verbose)
+            
+            # Build and attach isolated scalar mapping colorbar configurations
+            sm = plt.cm.ScalarMappable(cmap=colormap, norm=color_norm)
+            sm.set_array(vals)
+            fig.colorbar(sm, ax=ax, label=lab)
+            
+            # Set axis labels, titles, and layout limits
+            ax.set_title(f"{p_name}\n{lab}")
+            ax.set_xlabel('R [AU]')
+            ax.set_ylabel('z [AU]')
+            ax.set_xlim(xlim if xlim is not None else (0, max(struct['radii']) * 1.02))
+            ax.set_ylim(ylim if ylim is not None else (0, max(struct['all_z']) * 1.07))
+            
+    # Try parsing time arrays into readable temporal units [years] from underlying coordinates
+    try:
+        first_p = list(model_data.keys())[0]
+        first_key = list(model_data[first_p].keys())[0]
+        first_r = model_data[first_p][first_key]['radii'][0]
+        time_seconds = PIPE[0].chemistry[first_r]['abundances'].coords['time'].values[itime]
+        fig.suptitle(f'Simulation Comparison — $t = {time_seconds/3.156e7:.0f}$ years', fontsize=14, y=0.99)
+    except:
+        pass
+        
+    plt.tight_layout()
+    plt.show()
+
+
+import re
+import os
+from pathlib import Path
+import numpy as np
+import matplotlib.pyplot as plt
+
+def plot_midplane_nautilus_multi_comparison(PIPE, MODEL_NAMES, itime=-1, MODE='chemistry', key_list=['CO'],
+                                           fracab=True, verbose=True, xlim=None, ylim=None, colormap="turbo",
+                                           vmin=None, vmax=None, figsize=None):
+    """
+    Plots and compares 1D midplane ($z = 0$) radial profiles across multiple simulations.
+
+    This function extracts astrochemical abundances or macro-physical variables along the 
+    disk midplane (approximated here by the final cell of each vertical spatial column, 
+    corresponding to index `-1`). Each simulation model configuration is tracked along 
+    its own standalone, non-uniform spatial grid to avoid interpolation errors.
+
+    Parameters
+    ----------
+    PIPE : list
+        List of data pipeline objects containing chemical network simulation outputs.
+    MODEL_NAMES : list of str
+        The labels identifier corresponding to each simulation pipeline configuration.
+    itime : int, optional
+        Temporal grid index to extract from the simulation histories. Defaults to -1 (final snapshot).
+    MODE : {'chemistry', 'physical'}, optional
+        Determines the analytical parsing routine. 'chemistry' evaluates chemical abundances/densities, 
+        whereas 'physical' tracks environmental attributes. Defaults to 'chemistry'.
+    key_list : list of str, optional
+        Target tracking keys (chemical species or physical quantities) to map. Defaults to ['CO'].
+    fracab : bool, optional
+        If True, returns fractional abundances relative to total hydrogen ($n_X/n_H$). If False, converts 
+        to absolute volume number densities ($n_X$ [cm$^{-3}$]). Defaults to True.
+    verbose : bool, optional
+        Enables runtime tracking and error reporting for missing indices. Defaults to True.
+    xlim : tuple of float, optional
+        Horizontal display bounds in Astronomical Units (AU). Defaults to auto-scale.
+    ylim : tuple of float, optional
+        Vertical axis display bounds. Defaults to auto-scale.
+    colormap : str, optional
+        Matplotlib sequential or diverging colormap name used to distinguish species. Defaults to "turbo".
+    vmin : float, optional
+        Explicit lower bound limit for the ordinate axis.
+    vmax : float, optional
+        Explicit upper bound limit for the ordinate axis.
+    figsize : tuple of float, optional
+        Dimensions of the generated figure window canvas. Defaults to (10, 6).
+    """
+    if len(MODEL_NAMES) != len(PIPE):
+        raise ValueError("MODEL_NAMES and PIPE must have the same length")
+        
+    if isinstance(key_list, str):
+        key_list = [key_list]
+
+    if len(MODEL_NAMES) != len(set(MODEL_NAMES)):
+        MODEL_NAMES = [f"Model {i+1}" for i in range(len(PIPE))]
+
+    def clean_molec(mol_name):
+        """Formats raw astrochemical network species codes into LaTeX math text."""
+        raw = re.sub(r"^[JK]\d+", "", mol_name)
+        f = re.sub(r"(\d+)", r"_{\1}", raw)
+        f = re.sub(r"([+-]+)$", r"^{\1}", f)
+        return f"${f}$"
+
+    def title_phys(variable):
+        """Formats physical property string keys into standardized units nomenclature."""
+        name = variable.replace("_", " ").title()
+        if "temperature" in name.lower(): name += " [K]"
+        elif "extinction" in name.lower(): name += " [mag]"
+        elif "density" in name.lower(): name += " [$cm^{-3}$]"
+        return name
+
+    # --- CANVAS INITIALIZATION ---
+    fig, ax = plt.subplots(figsize=figsize if figsize else (10, 6))
+    colors = [plt.colormaps[colormap](0.5)] if len(key_list) == 1 else plt.colormaps[colormap](np.linspace(0, 0.9, len(key_list)))
+
+    # Aesthetic line and marker style configurations for cross-model mapping verification
+    marker_pool = ['o', 's', '^', 'D', 'v', 'p', '*', 'X', 'h']
+    linestyle_pool = ['-', '--', ':', '-.']
+
+    all_valid_mins, all_valid_maxs = [], []
+    time_years_string = None
+
+    # --- DATA EXTRACTION LOOP ---
+    for k_idx, key in enumerate(key_list):
+        for p_idx, p in enumerate(PIPE):
+            p_name = getattr(p, 'name', MODEL_NAMES[p_idx])
+            main_output_dict = p.chemistry
+            
+            radii_list, values_list = [], []
+
+            # Trace individual radial structures
+            for r_value in main_output_dict.keys():
+                try:
+                    sub_dict = main_output_dict[r_value]
+                    if MODE == 'physical':
+                        # Access the lowermost grid boundary cell (index -1 maps to the midplane z=0)
+                        v_midplane = sub_dict[key][itime, -1]
+                    elif MODE == 'chemistry':
+                        abundance_array = sub_dict['abundances']
+                        v_midplane = float(abundance_array.isel(time=itime).sel(species=key).values[-1])
+                        # Apply scale factor conversion if absolute number densities are required
+                        if not fracab:
+                            v_midplane *= sub_dict["H_number_density"][itime, -1]
+                    
+                    radii_list.append(float(r_value))
+                    values_list.append(v_midplane)
+                    
+                    # Dynamically catch the current snapshot execution epoch from metadata coordinates
+                    if time_years_string is None:
+                        try:
+                            t_sec = sub_dict['abundances'].coords['time'].values[itime]
+                            time_years_string = f"{t_sec / 3.156e7:.0f}"
+                        except: pass
+                except Exception as e:
+                    if verbose: print(f"[{p_name}] Error processing R={r_value}, Key={key}: {e}")
+
+            if not radii_list: continue
+
+            # Monotonically sort spatial vectors along radial vectors to fix plotting artifacts
+            sort_indices = np.argsort(radii_list)
+            radii_arr = np.array(radii_list)[sort_indices]
+            values_arr = np.array(values_list)[sort_indices]
+
+            # Collect global extrema benchmarks across positive values for logarithmic scaling bounds
+            pos_values = values_arr[values_arr > 0]
+            if len(pos_values) > 0: all_valid_mins.append(pos_values.min())
+            all_valid_maxs.append(values_arr.max())
+
+            clean_label = title_phys(key) if MODE == 'physical' else clean_molec(key)
+            full_label = f"{p_name}" if len(key_list) == 1 else f"{clean_label} ({p_name})"
+
+            # Render 1D comparative profile tracks
+            ax.plot(radii_arr, values_arr, color=colors[k_idx], 
+                    linestyle=linestyle_pool[p_idx % len(linestyle_pool)], 
+                    marker=marker_pool[p_idx % len(marker_pool)], markersize=5, lw=1.5, label=full_label)
+
+    # --- SCALING AND POST-PROCESSING ---
+    is_log = MODE == 'chemistry' or any("density" in k.lower() or "extinction" in k.lower() for k in key_list)
+    if is_log:
+        ax.set_yscale('log')
+        ax.set_ylim(vmin if vmin is not None else (max(1e-15, min(all_valid_mins)) if all_valid_mins else 1e-15),
+                    vmax if vmax is not None else (max(all_valid_maxs)*2 if all_valid_maxs else 1.0))
+    elif vmin is not None or vmax is not None:
+        ax.set_ylim(vmin, vmax)
+
+    ax.set_xlabel('Radius R [AU]')
+    ax.set_ylabel(f"{clean_label}" if len(key_list) == 1 else "Values (See Legend)")
+    ax.set_title(f'Midplane ($z = 0$) Profile Comparison — $t = {time_years_string}$ years' if time_years_string else 'Midplane ($z = 0$) Profile Comparison')
+    if xlim: ax.set_xlim(xlim)
+    if ylim: ax.set_ylim(ylim)
+    ax.legend(loc='best', frameon=True)
+    ax.grid(True, linestyle=':', alpha=0.5)
+    plt.tight_layout()
+    plt.show()
+
+
+def plot_midplane_nautilus_multi_CoverO(PIPE, MODEL_NAMES, itime=-1, MODE='chemistry',
+                                       species_list=['CO', 'CO2', 'CH4', 'H2O'], fracab=True,
+                                       verbose=True, xlim=None, ylim=None, colormap="turbo",
+                                       vmin=None, vmax=None, figsize=None):
+    """
+    Plots individual molecular midplane profiles alongside the local elemental C/O gas+ice ratio.
+
+    This routine performs a stoichiometric reconstruction across a specific user-defined subset 
+    of molecules. It isolates midplane values to map elemental volatile reservoirs, tracing 
+    the spatial tracking of chemical snowlines or processing signatures across multiple models.
+
+    Parameters
+    ----------
+    PIPE : list
+        List of pipeline wrapper objects containing astrochemical simulation run files.
+    MODEL_NAMES : list of str
+        The labels identifier corresponding to each simulation pipeline configuration.
+    itime : int, optional
+        Temporal array lookup index for tracking historical snapshots. Defaults to -1.
+    MODE : {'chemistry', 'physical'}, optional
+        Operational mode configuration tracking chemical or physical properties. Defaults to 'chemistry'.
+    species_list : list of str, optional
+        Volatile carriers subset used to integrate carbon and oxygen atom mass loads. Defaults to ['CO', 'CO2', 'CH4', 'H2O'].
+    fracab : bool, optional
+        Controls mapping coordinates scaling normalization bounds. Defaults to True.
+    verbose : bool, optional
+        Enables structural messaging for missing data cells. Defaults to True.
+    xlim : tuple of float, optional
+        Spatial radial constraints vector limits. Defaults to None.
+    ylim : tuple of float, optional
+        Ordinate limit values vector for the computed elemental ratio sub-panel. Defaults to None.
+    colormap : str, optional
+        Matplotlib color vector mapping name string. Defaults to "turbo".
+    vmin : float, optional
+        Minimum limit parameter values applied to the profile plots. Defaults to None.
+    vmax : float, optional
+        Maximum limit parameter values applied to the profile plots. Defaults to None.
+    figsize : tuple of float, optional
+        Canvas dimensional aspect ratio layout configuration envelope. Defaults to (15, 6).
+    """
+    if len(MODEL_NAMES) != len(PIPE):
+        raise ValueError("MODEL_NAMES and PIPE must have the same length")
+        
+    if isinstance(species_list, str):
+        species_list = [species_list]
+
+    if len(MODEL_NAMES) != len(set(MODEL_NAMES)):
+        MODEL_NAMES = [f"Model {i+1}" for i in range(len(PIPE))]
+
+    def clean_molec(mol_name):
+        """Processes complex character identification names into standard LaTeX subscripts."""
+        raw = re.sub(r"^[JK]\d+", "", mol_name)
+        f = re.sub(r"(\d+)", r"_{\1}", raw)
+        f = re.sub(r"([+-]+)$", r"^{\1}", f)
+        return f"${f}$"
+
+    def count_atoms(mol_name, element):
+        """Regex stoichiometry tool that calculates the count of a target atom in a molecule."""
+        clean_name = re.sub(r"^[JK]\d+_*", "", mol_name).split('+')[0].split('-')[0]
+        matches = re.findall(r'([A-Z][a-z]*)(\d*)', clean_name)
+        count = 0
+        for el, num in matches:
+            if el == element: count += int(num) if num else 1
+        return count
+
+    # --- DUAL ASPECT RATIO INITIALIZATION ---
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=figsize if figsize else (15, 6))
+    colors = [plt.colormaps[colormap](0.5)] if len(species_list) == 1 else plt.colormaps[colormap](np.linspace(0, 0.9, len(species_list)))
+
+    marker_pool = ['o', 's', '^', 'D', 'v', 'p', '*', 'X', 'h']
+    linestyle_pool = ['-', '--', ':', '-.']
+
+    all_valid_mins, all_valid_maxs = [], []
+    time_years_string = None
+
+    # --- STOICHIOMETRIC INTEGRATION PHASE ---
+    for p_idx, p in enumerate(PIPE):
+        p_name = getattr(p, 'name', MODEL_NAMES[p_idx])
+        main_output_dict = p.chemistry
+        
+        marker_style = marker_pool[p_idx % len(marker_pool)]
+        line_style = linestyle_pool[p_idx % len(linestyle_pool)]
+        co_ratio_radii, co_ratio_values = [], []
+
+        radii_sorted = sorted([float(r) for r in main_output_dict.keys()])
+        
+        for r_val in radii_sorted:
+            r_str = str(r_val) if str(r_val) in main_output_dict else r_val
+            if r_str not in main_output_dict: continue
+            
+            sub_dict = main_output_dict[r_str]
+            total_C_density, total_O_density = 0.0, 0.0
+            valid_cell = False
+
+            # Sum volatile atom budgets at the midplane boundary row (index -1)
+            for key in species_list:
+                try:
+                    if MODE == 'physical':
+                        v_midplane = sub_dict[key][itime, -1]
+                    elif MODE == 'chemistry':
+                        abundance_array = sub_dict['abundances']
+                        v_midplane = float(abundance_array.isel(time=itime).sel(species=key).values[-1])
+                        if not fracab: v_midplane *= sub_dict["H_number_density"][itime, -1]
+                    
+                    valid_cell = True
+                    if MODE == 'chemistry':
+                        total_C_density += v_midplane * count_atoms(key, 'C')
+                        total_O_density += v_midplane * count_atoms(key, 'O')
+                except Exception as e:
+                    if verbose and r_val == radii_sorted[0]: print(f"[{p_name}] Warning for Key={key}: {e}")
+            
+            # Compute elemental ratio signatures
+            if valid_cell and MODE == 'chemistry':
+                co_ratio_radii.append(r_val)
+                co_ratio_values.append(total_C_density / total_O_density if total_O_density > 0 else np.nan)
+
+            if time_years_string is None:
+                try:
+                    t_sec = sub_dict['abundances'].coords['time'].values[itime]
+                    time_years_string = f"{t_sec / 3.156e7:.0f}"
+                except: pass
+
+        # Plot structural values on the right-hand panel axes
+        if MODE == 'chemistry' and co_ratio_radii:
+            ax2.plot(co_ratio_radii, co_ratio_values, color=plt.cm.tab10(p_idx % 10), 
+                     linestyle=line_style, marker=marker_style, markersize=5, lw=1.5, label=f"C/O ({p_name})")
+
+    # --- SPECIES MOLECULAR TRACING PHASE ---
+    for k_idx, key in enumerate(species_list):
+        clean_label = clean_molec(key)
+        for p_idx, p in enumerate(PIPE):
+            p_name = getattr(p, 'name', MODEL_NAMES[p_idx])
+            radii_list, values_list = [], []
+            
+            for r_val in sorted([float(r) for r in p.chemistry.keys()]):
+                try:
+                    sub_dict = p.chemistry[str(r_val) if str(r_val) in p.chemistry else r_val]
+                    if MODE == 'physical': v = sub_dict[key][itime, -1]
+                    else:
+                        v = float(sub_dict['abundances'].isel(time=itime).sel(species=key).values[-1])
+                        if not fracab: v *= sub_dict["H_number_density"][itime, -1]
+                    radii_list.append(r_val)
+                    values_list.append(v)
+                except: continue
+            
+            if radii_list:
+                pos_values = np.array(values_list)[np.array(values_list) > 0]
+                if len(pos_values) > 0: all_valid_mins.append(pos_values.min())
+                all_valid_maxs.append(max(values_list))
+                
+                full_label = f"{p_name}" if len(species_list) == 1 else f"{clean_label} ({p_name})"
+                # Plot individual profiles on the left-hand panel axes
+                ax1.plot(radii_list, values_list, color=colors[k_idx], 
+                         linestyle=linestyle_pool[p_idx % len(linestyle_pool)], 
+                         marker=marker_pool[p_idx % len(marker_pool)], markersize=5, lw=1.5, label=full_label)
+
+    # --- AXIS FORMATTING AND STYLING ---
+    is_log = MODE == 'chemistry' or any("density" in k.lower() or "extinction" in k.lower() for k in species_list)
+    if is_log:
+        ax1.set_yscale('log')
+        ax1.set_ylim(vmin if vmin is not None else (max(1e-15, min(all_valid_mins)) if all_valid_mins else 1e-15), 
+                     vmax if vmax is not None else max(all_valid_maxs) * 2)
+    else:
+        if vmin is not None or vmax is not None: ax1.set_ylim(vmin, vmax)
+
+    ax1.set_ylabel("Abundance" if fracab else "Density [cm$^{-3}$]")
+    ax1.set_xlabel('Radius R [AU]')
+    ax1.legend(loc='best', frameon=True, fontsize='small')
+    ax1.grid(True, linestyle=':', alpha=0.5)
+
+    if MODE == 'chemistry':
+        ax2.set_ylabel("Gas+Ice C/O Ratio")
+        ax2.legend(loc='best', frameon=True, fontsize='small')
+        ax2.grid(True, linestyle=':', alpha=0.5)
+    ax2.set_xlabel('Radius R [AU]')
+
+    if xlim:
+        ax1.set_xlim(xlim)
+        ax2.set_xlim(xlim)
+    if ylim: ax2.set_ylim(ylim)
+
+    title_suffix = f' — $t = {time_years_string}$ years' if time_years_string else ''
+    fig.suptitle(f'Midplane ($z = 0$) Radial Profile Comparison{title_suffix}', y=0.98, fontsize=12)
+    plt.tight_layout()
+    plt.show()
+
+
+def plot_grain_surface_midplane_comparison(PIPE, MODEL_NAMES, itime=-1, verbose=True, xlim=None, ylim=None, colormap="viridis"):
+    """
+    Computes and plots total integrated midplane ($z = 0$) dust grain surface area metrics.
+
+    This function loops over size-discretized dust distributions within separate simulation configurations, 
+    parsing cross-sectional surface geometries ($4\pi a^2$) combined with localized dust-to-gas ratio distributions 
+    and total gas densities to derive the total reactive interface capacity per unit volume.
+
+    Parameters
+    ----------
+    PIPE : list
+        List of astrochemical pipelines storing structural parameters.
+    MODEL_NAMES : list of str
+        The labels identifier corresponding to each simulation pipeline configuration.
+    itime : int, optional
+        Snapshot temporal coordinates tracking point index. Defaults to -1.
+    verbose : bool, optional
+        Toggles data error stream reporting. Defaults to True.
+    xlim : tuple of float, optional
+        Horizontal display parameters limit boundaries vector. Defaults to None.
+    ylim : tuple of float, optional
+        Vertical axis configuration mapping constraints vector. Defaults to None.
+    colormap : str, optional
+        Matplotlib lookup color code mapping variable string. Defaults to "viridis".
+    """
+    if len(MODEL_NAMES) != len(PIPE): raise ValueError("MODEL_NAMES and PIPE must have the same length")
+    if len(MODEL_NAMES) != len(set(MODEL_NAMES)): MODEL_NAMES = [f"Model {i+1}" for i in range(len(PIPE))]
+
+    fig, ax = plt.subplots(figsize=(9, 5))
+    ax.set_yscale('log')
+    colors = plt.colormaps[colormap].resampled(len(PIPE))(np.linspace(0, 0.95, len(PIPE)))
+    
+    global_max_val, global_min_pos_val = -np.inf, np.inf
+    time_years_string = None
+
+    # --- DUST SIZE BIN PARSING LOOP ---
+    for p_idx, p in enumerate(PIPE):
+        p_name = getattr(p, 'name', MODEL_NAMES[p_idx])
+        main_output_dict = p.chemistry
+        chempath = Path(p.chempath)
+        radii_list, surface_list = [], []
+
+        for r_value in main_output_dict.keys():
+            file_path = os.path.join(chempath, f"{r_value}AU", "1D_grain_sizes.in")
+            if os.path.exists(file_path):
+                try:
+                    # Read size-discretized dust parameter files
+                    grain_data = np.loadtxt(file_path, comments='!')
+                    midplane_row = grain_data[-1, :] # Extract the midplane boundary cell configuration row
+                    N = int(len(midplane_row) / 4) # Each grain size bin carries 4 physical parameters
+                    
+                    a_array = midplane_row[0:N]             # Grain radii vectors [cm]
+                    gtodn_array = midplane_row[N:2*N]       # Gas-to-dust mass or number density ratio distributions
+                    nH_midplane = main_output_dict[r_value]["H_number_density"][itime, -1] # Nuclei count density
+                    
+                    # Integrate total dust grain surface area tracking metrics ($4\pi a^2 n_{dust}$) per unit volume
+                    total_surface = 4 * np.pi * nH_midplane * np.sum((a_array**2) / gtodn_array)
+                    radii_list.append(float(r_value))
+                    surface_list.append(total_surface)
+                    
+                    if time_years_string is None:
+                        try:
+                            t_sec = main_output_dict[r_value]['abundances'].coords['time'].values[itime]
+                            time_years_string = f"{t_sec / 3.156e7:.0f}"
+                        except: pass
+                except Exception as e:
+                    if verbose: print(f"[{p_name}] Error parsing dust records at R={r_value}: {e}")
+
+        if radii_list:
+            sort_indices = np.argsort(radii_list)
+            radii_arr = np.array(radii_list)[sort_indices]
+            surface_arr = np.array(surface_list)[sort_indices]
+            
+            global_max_val = max(global_max_val, surface_arr.max())
+            pos_vals = surface_arr[surface_arr > 0]
+            if len(pos_vals) > 0: global_min_pos_val = min(global_min_pos_val, pos_vals.min())
+
+            ax.plot(radii_arr, surface_arr, color=colors[p_idx], linestyle='-', marker='s', markersize=4, lw=1.5, label=p_name)
+
+    # --- PLOT STYLING ---
+    ax.set_xlabel('Radius R [AU]')
+    ax.set_ylabel(r'Total Grain Surface Area [$\text{cm}^{2}/\text{cm}^{3}$]')
+    ax.set_title(f'Total Grain Surface Area at Midplane ($z=0$) - $t = {time_years_string}$ yr' if time_years_string else 'Total Grain Surface Area at Midplane ($z=0$)')
+    
+    if xlim: ax.set_xlim(xlim)
+    if ylim: ax.set_ylim(ylim)
+    else: ax.set_ylim(max(1e-25, global_min_pos_val), global_max_val * 2 if global_max_val != -np.inf else 1e-10)
+    ax.grid(True, linestyle=':', alpha=0.5)
+    ax.legend(loc='best', frameon=True)
+    plt.tight_layout()
+    plt.show()
+
+
+import os
+import re
+from pathlib import Path
+import numpy as np
+import pandas as pd
+import xarray as xr
+import matplotlib.pyplot as plt
+from matplotlib.collections import PolyCollection
+from matplotlib.colors import LogNorm, Normalize
+
+def plot_vertical_cut_nautilus_comparison(PIPE, MODEL_NAMES, R, species='CO', itime=-1, fracab=True,
+                                         colormap="turbo", xlim=None, ylim=None, xscale="linear", yscale="linear", verbose=True):
+    """
+    Plots and compares 1D vertical cuts ($z$-axis profiles) across multiple physical or 
+    chemical model instances at specified radial nodes ($R$).
+
+    This routine prevents dimensionality or grid mismatch collisions by isolating standalone 
+    coordinate files for each individual model configuration. It supports plotting multiple 
+    species at a single radius or a single species across multiple radii.
+
+    Parameters
+    ----------
+    PIPE : list
+        List of object pipelines containing simulation outputs.
+    MODEL_NAMES : list of str
+        The labels identifier corresponding to each simulation pipeline configuration.
+    R : float, int, or list of same
+        The target radial distance(s) [AU] where the vertical slice is extracted.
+    species : str or list of str, optional
+        Target tracking key or chemical formulas to evaluate. Defaults to 'CO'.
+    itime : int, optional
+        Temporal lookup configuration tracking point index. Defaults to -1 (final snapshot).
+    fracab : bool, optional
+        If True, plots fractional molecular abundance relative to total hydrogen ($n_X/n_H$). 
+        If False, displays absolute volume concentrations ($n_X$ [cm$^{-3}$]). Defaults to True.
+    colormap : str, optional
+        Matplotlib lookup identification string for mapping distinct spatial rows. Defaults to "turbo".
+    xlim : tuple of float, optional
+        Horizontal chart boundaries. Defaults to None.
+    ylim : tuple of float, optional
+        Vertical chart boundaries mapping height values [AU]. Defaults to None.
+    xscale : {'linear', 'log'}, optional
+        Scaling profile transform applied to the horizontal axis. Defaults to "linear".
+    yscale : {'linear', 'log'}, optional
+        Scaling profile transform applied to the vertical axis. Defaults to "linear".
+    verbose : bool, optional
+        Toggles print reporting warnings for missing files or grid mismatches. Defaults to True.
+
+    Raises
+    ------
+    ValueError
+        If length of MODEL_NAMES does not match PIPE, or if multiple entries are provided for both 
+        R and species concurrently.
+    """
+    if len(MODEL_NAMES) != len(PIPE): raise ValueError("MODEL_NAMES and PIPE must have the same length")
+    r_list = [R] if not isinstance(R, list) else R
+    species_list = [species] if not isinstance(species, list) else species
+    r_list = [int(r) for r in r_list]
+
+    # Block ambiguous multi-dimensional cross-combinations
+    if len(r_list) > 1 and len(species_list) > 1:
+        raise ValueError("Cannot supply multiple values for both 'R' and 'species' simultaneously.")
+
+    if len(MODEL_NAMES) != len(set(MODEL_NAMES)): MODEL_NAMES = [f"Model {i+1}" for i in range(len(PIPE))]
+
+    fig, ax = plt.subplots(figsize=(8, 6))
+    total_distinct_targets = max(len(r_list), len(species_list))
+    colors = plt.colormaps[colormap](np.linspace(0, 0.9, total_distinct_targets))
+
+    marker_pool = ['o', 's', '^', 'D', 'v', 'p', '*', 'X']
+    linestyle_pool = ['-', '--', ':', '-.']
+    time_years_string = None
+
+    target_idx = 0
+    # --- VERTICAL PROCESSING INTERPOLATOR ---
+    for r_val in r_list:
+        for spec_val in species_list:
+            for p_idx, p in enumerate(PIPE):
+                p_name = getattr(p, 'name', MODEL_NAMES[p_idx])
+                chempath = Path(p.chempath)
+                if r_val not in p.chemistry: continue
+
+                try:
+                    # Parse spatial grid nodes mapping from the 1D physical structural file
+                    static_file = chempath / f"{r_val}AU" / "1D_static.dat"
+                    static = pd.read_table(static_file, sep=r'\s+', comment='!', header=None, engine='python')
+                    z = static[0].values  
+                    
+                    # Extract target species data from chemical simulation outputs
+                    ab = p.chemistry[r_val]['abundances']
+                    sp_arr = ab.isel(time=itime).sel(species=spec_val).values
+                    n_plot = sp_arr if fracab else sp_arr * p.chemistry[r_val]["H_number_density"][itime, :]
+
+                    # Dynamically retrieve and format the current snapshot execution epoch
+                    if time_years_string is None:
+                        try: time_years_string = f"{ab.coords['time'].values[itime] / 3.156e7:.0f}"
+                        except: pass
+
+                    marker_style = marker_pool[p_idx % len(marker_pool)]
+                    line_style = linestyle_pool[p_idx % len(linestyle_pool)]
+                    
+                    # Render scatter nodes and continuous profiles
+                    ax.scatter(n_plot, z, color=colors[target_idx], s=15, marker=marker_style)
+                    ax.plot(n_plot, z, color=colors[target_idx], linestyle=line_style, lw=1.5,
+                            label=f"{spec_val} @ {r_val} AU ({p_name})" if total_distinct_targets > 1 else f"{p_name}")
+                except Exception as e:
+                    if verbose: print(f"[{p_name}] Error parsing vertical cut for R={r_val}, species={spec_val}: {e}")
+            if total_distinct_targets > 1: target_idx += 1
+
+    # --- AXIS FORMATTING ---
+    ax.set_ylabel("z [AU]")
+    ax.set_xlabel("Fractional Abundance" if fracab else "Number Density [cm$^{-3}$]")
+    ax.set_xscale(xscale)
+    ax.set_yscale(yscale)
+    if xlim: ax.set_xlim(xlim)
+    if ylim: ax.set_ylim(ylim)
+    ax.legend(loc='best', frameon=True)
+    ax.grid(True, linestyle=':', alpha=0.5)
+    plt.tight_layout()
+    plt.show()
+
+
+def plot_atom_ratio_nautilus_midplane(PIPE, MODEL_NAMES, ratio_list=['C/O'], itime=-1,
+                                      verbose=True, xlim=None, ylim=None, common_scale=True):
+    """
+    Plots the radial distribution of gas-phase elemental abundance ratios along the 
+    disk midplane ($z = 0$).
+
+    This function dynamically sums the atomic contribution of any given element across 
+    all detected volatile gas-phase compounds to track macroscopic chemical variations, 
+    such as carbon-to-oxygen processing signatures.
+
+    Parameters
+    ----------
+    PIPE : list
+        List of object data pipelines storing the chemical networks.
+    MODEL_NAMES : list of str
+        The labels identifier corresponding to each simulation pipeline configuration.
+    ratio_list : list of str, optional
+        Target ratio definitions formatted as 'Element1/Element2'. Defaults to ['C/O'].
+    itime : int, optional
+        The specific tracking array index evaluated for snapshot mapping. Defaults to -1.
+    verbose : bool, optional
+        Enables structural runtime processing warnings reporting. Defaults to True.
+    xlim : tuple of float, optional
+        Radial distance horizontal viewing constraints. Defaults to None.
+    ylim : tuple of float, optional
+        Ordinate range bounds configuration constraints vector. Defaults to None.
+    common_scale : bool, optional
+        If True, locks the vertical axis scale parameters identically across columns. Defaults to True.
+    """
+    if len(MODEL_NAMES) != len(PIPE): raise ValueError("MODEL_NAMES and PIPE must have the same length")
+    if isinstance(ratio_list, str): ratio_list = [ratio_list]
+
+    elements = ['H', 'He', 'C', 'N', 'O', 'Si', 'S', 'Fe', 'Na', 'Mg', 'Cl', 'P', 'F']
+    parsed_ratios = []
+    for item in ratio_list:
+        s1, s2 = item.split('/')
+        parsed_ratios.append((s1, s2, item))
+
+    if len(MODEL_NAMES) != len(set(MODEL_NAMES)): MODEL_NAMES = [f"Model {i+1}" for i in range(len(PIPE))]
+
+    def count_species_elements(species_name, element1, element2):
+        """Calculates specific atomic numbers contained within an isolated molecular compound formula string."""
+        if species_name == 'e-': return {element1: 0, element2: 0}
+        formula = species_name.replace('c-', '').replace('l-', '').split('+')[0].split('-')[0]
+        pattern = re.compile(r'([A-Z][a-z]?)(-?\d*)')
+        composition = {}
+        for atom, n in pattern.findall(formula):
+            composition[atom] = composition.get(atom, 0) + (int(n) if n else 1)
+        return {element1: composition.get(element1, 0), element2: composition.get(element2, 0)}
+
+    def keep_gas_species_only(species):
+        """Filters species list to exclude grain surface adsorption sites and ice phase components."""
+        motif = re.compile(r'^[JK]\d{2}|^GRAIN')
+        return [e for e in species if not motif.match(e)]
+
+    model_data = {}
+    atom_cache = {}
+    time_years_string = None
+
+    # --- MIDPLANE RECONSTRUCTION PROCESS ---
+    for p_idx, p in enumerate(PIPE):
+        p_name = getattr(p, 'name', MODEL_NAMES[p_idx])
+        ratio_database = {token: [] for _, _, token in parsed_ratios}
+
+        for r_value in p.chemistry.keys():
+            file_path = os.path.join(p.chempath, f"{r_value}AU", "1D_static.dat")
+            if os.path.exists(file_path):
+                try:
+                    z_points = np.atleast_1d(np.loadtxt(file_path, comments='!', usecols=0))
+                    abundance_array = p.chemistry[r_value]['abundances']
+                    
+                    if time_years_string is None:
+                        try: time_years_string = f"{float(abundance_array.coords['time'].values[itime]) / 3.156e7:.0f}"
+                        except: pass
+
+                    local_species_list = keep_gas_species_only(list(abundance_array.coords['species'].values))
+                    time_slice = abundance_array.isel(time=itime).sel(species=local_species_list)
+                    
+                    for s1, s2, token in parsed_ratios:
+                        s1_coeffs, s2_coeffs = [], []
+                        for species in local_species_list:
+                            cache_key = f"{species}_{s1}_{s2}"
+                            if cache_key not in atom_cache:
+                                atom_cache[cache_key] = count_species_elements(species, s1, s2)
+                            s1_coeffs.append(atom_cache[cache_key][s1])
+                            s2_coeffs.append(atom_cache[cache_key][s2])
+                        
+                        da_s1 = xr.DataArray(s1_coeffs, coords=[local_species_list], dims=['species'])
+                        da_s2 = xr.DataArray(s2_coeffs, coords=[local_species_list], dims=['species'])
+                        
+                        # Compute atomic-weighted dot products across tracking vectors
+                        total_s1 = (time_slice * da_s1).sum(dim='species')
+                        total_s2 = (time_slice * da_s2).sum(dim='species')
+
+                        with np.errstate(divide='ignore', invalid='ignore'):
+                            ratio_values = xr.where(total_s2 > 0, total_s1 / total_s2, 0.0).values
+                        
+                        # Isolate the index mapping explicitly to the midplane row (-1)
+                        if len(z_points) == len(ratio_values):
+                            ratio_database[token].append({'R': float(r_value), 'v_midplane': ratio_values[-1]})
+                except Exception as e:
+                    if verbose: print(f"[{p_name}] Error for R={r_value} AU: {e}")
+
+        plot_structures = {}
+        for s1, s2, token in parsed_ratios:
+            columns_data = sorted(ratio_database[token], key=lambda x: x['R'])
+            if not columns_data: continue
+            plot_structures[token] = {'radii': np.array([c['R'] for c in columns_data]), 'values': np.array([c['v_midplane'] for c in columns_data])}
+        model_data[p_name] = plot_structures
+
+    # --- SUBPLOT GEOMETRY GRID INITIALIZATION ---
+    num_models = len(PIPE)
+    model_names = list(model_data.keys())
+    num_ratios = len(parsed_ratios)
+
+    if num_models == 1:
+        cols = min(3, num_ratios)
+        rows = (num_ratios + cols - 1) // cols
+        fig, axes = plt.subplots(rows, cols, figsize=(5 * cols, 4 * rows), squeeze=False)
+        axes = axes.flatten()
+    else:
+        cols = num_models
+        rows = num_ratios
+        fig, axes = plt.subplots(rows, cols, figsize=(5 * cols, 4 * rows), squeeze=False)
+
+    # --- RENDERING GENERATION EXECUTION LOOP ---
+    for row_idx, (_, _, token) in enumerate(parsed_ratios):
+        global_is_log, global_ymin, global_ymax = False, 0.0, 1.0
+        if common_scale:
+            all_row_vals = []
+            for p_name in model_names:
+                if token in model_data[p_name]: all_row_vals.extend(model_data[p_name][token]['values'])
+            all_row_vals = np.array(all_row_vals)
+            if len(all_row_vals) > 0:
+                pos_vals = all_row_vals[all_row_vals > 0]
+                global_ymin = pos_vals.min() if len(pos_vals) > 0 else 1e-15
+                global_ymax = all_row_vals.max()
+                # Activate logarithmic scale if parameters span more than two orders of magnitude
+                if len(pos_vals) > 0 and (global_ymax / global_ymin) > 100.0: global_is_log = True
+
+        for col_idx, p_name in enumerate(model_names):
+            if token not in model_data[p_name]: continue
+            ax = axes[row_idx, col_idx] if num_models > 1 else axes[row_idx]
+            struct = model_data[p_name][token]
+            vals = struct['values']
+            
+            is_log = global_is_log if common_scale else (len(vals[vals>0]) > 0 and (vals.max()/vals[vals>0].min()) > 100.0)
+            if is_log: ax.set_yscale('log')
+            
+            ax.plot(struct['radii'], vals, color='black', lw=2, marker='o', ms=4)
+            ax.set_title(f"{p_name}\nRatio {token} (z=0)")
+            ax.set_xlabel('R [AU]')
+            ax.set_ylabel(f'Ratio {token}')
+            ax.grid(True, which="both", linestyle='--', alpha=0.5)
+            if xlim: ax.set_xlim(xlim)
+            if ylim: ax.set_ylim(ylim)
+            else: ax.set_ylim(global_ymin if common_scale else vals[vals>0].min(), global_ymax if common_scale else vals.max())
+
+    plt.tight_layout()
+    plt.show()
+
+
+def plot_atom_ratio_nautilus_comparison(PIPE, MODEL_NAMES, ratio_list=['C/O'], itime=-1,
+                                       verbose=True, xlim=None, ylim=None, colormap="gnuplot", common_scale=True):
+    """
+    Plots a 2D vertical poloidal cross-section ($R$ vs. $z$) comparing elemental abundance 
+    ratios across separate models.
+
+    This routine performs a comprehensive inventory of all gas-phase molecules to calculate 
+    the spatial progression of atomic ratios. It maps the values column-by-column across 
+    an asymmetric mesh, preventing grid step artifacts.
+
+    Parameters
+    ----------
+    PIPE : list
+        List of data wrapper objects containing simulation output structures.
+    MODEL_NAMES : list of str
+        The labels identifier corresponding to each simulation pipeline configuration.
+    ratio_list : list of str, optional
+        Target tracking key representations formatted as 'Element1/Element2'. Defaults to ['C/O'].
+    itime : int, optional
+        Temporal lookup configuration index tracking array point positions. Defaults to -1.
+    verbose : bool, optional
+        Toggles print warning flags during parsing execution pipelines. Defaults to True.
+    xlim : tuple of float, optional
+        Horizontal chart limitations vector applied to spatial bounds. Defaults to None.
+    ylim : tuple of float, optional
+        Vertical height spatial boundaries vector limits. Defaults to None.
+    colormap : str, optional
+        Matplotlib lookup string designation key for plot color rendering maps. Defaults to "gnuplot".
+    common_scale : bool, optional
+        Enforces cross-model color normalization synchronization profiles. Defaults to True.
+    """
+    if len(MODEL_NAMES) != len(PIPE): 
+        raise ValueError("MODEL_NAMES and PIPE must have the same length")
+    if isinstance(ratio_list, str): 
+        ratio_list = [ratio_list]
+
+    elements = ['H', 'He', 'C', 'N', 'O', 'Si', 'S', 'Fe', 'Na', 'Mg', 'Cl', 'P', 'F']
+    parsed_ratios = []
+    for item in ratio_list:
+        s1, s2 = item.split('/')
+        parsed_ratios.append((s1, s2, item))
+
+    if len(MODEL_NAMES) != len(set(MODEL_NAMES)): 
+        MODEL_NAMES = [f"Model {i+1}" for i in range(len(PIPE))]
+
+    def count_species_elements(species_name, element1, element2):
+        """Regex tool designed to isolate stoichiometry patterns of targeted chemical strings."""
+        if species_name == 'e-': return {element1: 0, element2: 0}
+        formula = species_name.replace('c-', '').replace('l-', '').split('+')[0].split('-')[0]
+        pattern = re.compile(r'([A-Z][a-z]?)(-?\d*)')
+        composition = {}
+        for atom, n in pattern.findall(formula):
+            composition[atom] = composition.get(atom, 0) + (int(n) if n else 1)
+        return {element1: composition.get(element1, 0), element2: composition.get(element2, 0)}
+
+    def keep_gas_species_only(species):
+        """Filters chemical arrays to exclude surface clusters or mantle fractions."""
+        motif = re.compile(r'^[JK]\d{2}|^GRAIN')
+        return [e for e in species if not motif.match(e)]
+
+    model_data = {}
+    atom_cache = {}
+    time_years_string = None
+
+    # --- 2D VOLATILE MASS PROFILE EXTRACTION ---
+    for p_idx, p in enumerate(PIPE):
+        p_name = getattr(p, 'name', MODEL_NAMES[p_idx])
+        ratio_database = {token: [] for _, _, token in parsed_ratios}
+
+        for r_value in p.chemistry.keys():
+            file_path = os.path.join(p.chempath, f"{r_value}AU", "1D_static.dat")
+            if os.path.exists(file_path):
+                try:
+                    z_points = np.loadtxt(file_path, comments='!', usecols=0)
+                    abundance_array = p.chemistry[r_value]['abundances']
+                    local_species_list = keep_gas_species_only(list(abundance_array.coords['species'].values))
+                    sliced_abundances = abundance_array.isel(time=itime).sel(species=local_species_list).values
+                    
+                    if time_years_string is None:
+                        try: time_years_string = f"{abundance_array.coords['time'].values[itime] / 3.156e7:.0f}"
+                        except: pass
+
+                    for s1, s2, token in parsed_ratios:
+                        s1_coeffs = [count_species_elements(sp, s1, s2)[s1] for sp in local_species_list]
+                        s2_coeffs = [count_species_elements(sp, s1, s2)[s2] for sp in local_species_list]
+                        
+                        s1_coeffs = np.array(s1_coeffs)[:, np.newaxis]
+                        s2_coeffs = np.array(s2_coeffs)[:, np.newaxis]
+                        
+                        # Sum across columns via fast vector transformations
+                        total_s1 = np.sum(sliced_abundances * s1_coeffs, axis=0)
+                        total_s2 = np.sum(sliced_abundances * s2_coeffs, axis=0)
+
+                        with np.errstate(divide='ignore', invalid='ignore'):
+                            v_points = np.where(total_s2 > 0, total_s1 / total_s2, 0.0)
+                        
+                        if len(z_points) == len(v_points):
+                            ratio_database[token].append({'R': float(r_value), 'z': np.array(z_points), 'v': np.array(v_points)})
+                except Exception as e:
+                    if verbose: print(f"[{p_name}] Error compiling ratios for R={r_value}: {e}")
+
+        # --- RECTILINEAR FINITE CELL INTERPOLATOR ---
+        plot_structures = {}
+        for s1, s2, token in parsed_ratios:
+            columns_data = sorted(ratio_database[token], key=lambda x: x['R'])
+            if not columns_data: continue
+            radii = [col['R'] for col in columns_data]
+            
+            r_edges = [radii[0]-0.5, radii[0]+0.5] if len(radii) == 1 else [radii[0]-0.5*np.diff(radii)[0]] + [radii[i]+0.5*np.diff(radii)[i] for i in range(len(np.diff(radii)))] + [radii[-1]+0.5*np.diff(radii)[-1]]
+            
+            polygons, values = [], []
+            for i, col in enumerate(columns_data):
+                r_left, r_right = r_edges[i], r_edges[i+1]
+                z_pts, v_pts = col['z'], col['v']
+                z_edges = [z_pts[0]-0.5*np.diff(z_pts)[0]] + [z_pts[j]+0.5*np.diff(z_pts)[j] for j in range(len(np.diff(z_pts)))] + [max(0.0, z_pts[-1]+0.5*np.diff(z_pts)[-1])]
+                for j in range(len(v_pts)):
+                    poly = [(r_left, z_edges[j]), (r_right, z_edges[j]), (r_right, z_edges[j+1]), (r_left, z_edges[j+1])]
+                    polygons.append(poly)
+                    values.append(v_pts[j])
+
+            plot_structures[token] = {
+                'polygons': polygons, 'values': np.array(values), 'radii': radii,
+                'all_z': np.concatenate([c['z'] for c in columns_data])
+            }
+        model_data[p_name] = plot_structures
+
+    # --- CANVAS GEOMETRY INITIALIZATION ---
+    num_models = len(PIPE)
+    model_names = list(model_data.keys())
+    num_ratios = len(parsed_ratios)
+
+    if num_models == 1:
+        cols = min(3, num_ratios)
+        rows = (num_ratios + cols - 1) // cols
+        fig, axes = plt.subplots(rows, cols, figsize=(5.5 * cols, 4.5 * rows), squeeze=False)
+        axes = axes.flatten()  # Flatten to handles 1D structures across multi-row subplots cleanly
+    else:
+        cols = num_models
+        rows = num_ratios
+        fig, axes = plt.subplots(rows, cols, figsize=(5.5 * cols, 4.5 * rows), squeeze=False)
+
+    # --- RENDERING GENERATION EXECUTION LOOP ---
+    for row_idx, (_, _, token) in enumerate(parsed_ratios):
+        if common_scale:
+            all_row_vals = np.concatenate([model_data[m][token]['values'] for m in model_names if token in model_data[m]])
+            global_row_vmin = all_row_vals[all_row_vals>0].min() if len(all_row_vals[all_row_vals>0]) > 0 else 1e-15
+            global_row_vmax = all_row_vals.max()
+            global_row_is_log = (global_row_vmax / global_row_vmin) > 10.0
+
+        for col_idx, p_name in enumerate(model_names):
+            if token not in model_data[p_name]: continue
+            
+            # Safe indexing wrapper configuration
+            if num_models == 1:
+                ax = axes[row_idx]
+            else:
+                ax = axes[row_idx, col_idx]
+                
+            struct = model_data[p_name][token]
+            vals = struct['values']
+            
+            vmin_loc = global_row_vmin if common_scale else (vals[vals>0].min() if len(vals[vals>0])>0 else 1e-15)
+            vmax_loc = global_row_vmax if common_scale else vals.max()
+            is_log = global_row_is_log if common_scale else (vmax_loc / vmin_loc > 10.0)
+            
+            color_norm = LogNorm(vmin=vmin_loc, vmax=vmax_loc) if is_log else Normalize(vmin=vmin_loc, vmax=vmax_loc)
+            coll = PolyCollection(struct['polygons'], array=vals, cmap=colormap, norm=color_norm, edgecolors='none')
+            ax.add_collection(coll)
+            
+            fig.colorbar(plt.cm.ScalarMappable(norm=color_norm, cmap=colormap), ax=ax, label=f"Ratio [{token}]")
+            ax.set_title(f"{p_name}\nAtomic Ratio: {token}")
+            ax.set_xlabel('R [AU]')
+            ax.set_ylabel('z [AU]')
+            ax.set_xlim(xlim if xlim else (0, max(struct['radii']) * 1.02))
+            ax.set_ylim(ylim if ylim else (0, max(struct['all_z']) * 1.07))
+
+    # --- EMPTY SUBPLOT PANEL CLEANUP ---
+    if num_models == 1 and len(axes) > num_ratios:
+        for empty_ax in axes[num_ratios:]:
+            fig.delaxes(empty_ax)
+
+    plt.tight_layout()
+    plt.show()
+
+
+import os
+import re
+from pathlib import Path
+import numpy as np
+import matplotlib.pyplot as plt
+
+def plot_top_contributing_species(chempath, main_output_dict, target_atom="C", itime=-1,
+                                  verbose=True, spnumber=5, color="darkred", phase="gas", grain_bin=None):
+    """
+    Plots the top volume-integrated chemical carrier species reservoir contributions 
+    for a target elemental budget across the entire simulated space.
+
+    This function loops over all chemical species, filters them by phase/grain size bin criteria,
+    and weights their abundances by cell volume shell integration ($2\pi R \cdot \Delta R \cdot \Delta z$).
+    It then returns a breakdown ranking of global atomic distribution carriers.
+
+    Parameters
+    ----------
+    chempath : str or Path
+        The base repository path storing the 1D physical structural configurations.
+    main_output_dict : dict
+        A pipeline simulation data dictionary mapping discrete radial directory entries.
+    target_atom : str, optional
+        The specific elemental atom to calculate mass totals for (e.g., 'C', 'O', 'N'). Defaults to "C".
+    itime : int, optional
+        Temporal coordinates lookup point index. Defaults to -1 (final snapshot).
+    verbose : bool, optional
+        Enables runtime validation warning flags. Defaults to True.
+    spnumber : int, optional
+        Total ranked top dominant lines returned on the bar chart axes canvas. Defaults to 5.
+    color : str, optional
+        Matplotlib coloring identifier string used for rendering bars. Defaults to "darkred".
+    phase : {'gas', 'grain', 'surface', 'mantle', 'all'}, optional
+        Filters isolated calculation structures by active volatile states. Defaults to "gas".
+    grain_bin : int or str, optional
+        Isolates analysis strictly to a specific grain size distribution bin index. Defaults to None.
+    """
+    allowed_elements = ['H', 'He', 'C', 'N', 'O', 'Si', 'S', 'Fe', 'Na', 'Mg', 'Cl', 'P', 'F']
+    if target_atom not in allowed_elements: raise ValueError(f"Atom '{target_atom}' unrecognized.")
+    if grain_bin is not None and phase in ["gas", "all"]: raise ValueError("grain_bin and gas phase are mutually exclusive.")
+
+    chempath = Path(chempath)
+
+    def parse_species(species_name):
+        """Extracts the phase context, size bin index, and sanitized chemical formula from species codes."""
+        if species_name == 'e-': return "gas", None, "e-"
+        m = re.match(r'^([JK])(\d+)(.+)', species_name)
+        if m: return ("surface" if m.group(1) == 'J' else "mantle"), m.group(2), m.group(3).replace('c-', '').replace('l-', '')
+        return "gas", None, species_name.replace('c-', '').replace('l-', '')
+
+    def count_target_atom(clean_formula, target):
+        """Calculates specific atomic numbers contained within an isolated molecular compound formula string."""
+        if clean_formula == 'e-': return 0
+        f = clean_formula.split('+')[0].split('-')[0]
+        return sum(int(n) if n else 1 for atom, n in re.findall(r'([A-Z][a-z]*)(\d*)', f) if atom == target)
+
+    global_species_contributions = {}
+    radii_map = {int(re.findall(r'\d+', str(k))[0]): k for k in main_output_dict.keys() if re.findall(r'\d+', str(k))}
+    radii = sorted(list(radii_map.keys()))
+
+    # Define radial shell wall boundaries for cell volume tracking integrations
+    r_edges = [radii[0]*0.9, radii[0]*1.1] if len(radii)==1 else [radii[0]-0.5*np.diff(radii)[0]] + [radii[i]+0.5*np.diff(radii)[i] for i in range(len(np.diff(radii)))] + [radii[-1]+0.5*np.diff(radii)[-1]]
+
+    # --- MAIN SHELL INTEGRATION CORE ---
+    for i, r_val in enumerate(radii):
+        file_path = chempath / f"{r_val}AU" / "1D_static.dat"
+        if os.path.exists(file_path):
+            try:
+                z_points = np.loadtxt(file_path, comments='!', usecols=0)
+                sub_dict = main_output_dict[radii_map[r_val]]
+                ab_arr = sub_dict['abundances']
+                nH = sub_dict["H_number_density"][itime, :]
+
+                # Build asymmetric vertical boundary layers
+                dz = np.abs(np.diff([z_points[0]-0.5*np.diff(z_points)[0]] + [z_points[j]+0.5*np.diff(z_points)[j] for j in range(len(np.diff(z_points)))] + [max(0.0, z_points[-1]+0.5*np.diff(z_points)[-1])])) if len(z_points)>1 else np.array([z_points[0]])
+                
+                # Compute cylindrical coordinates cell volumes scaled to cgs units (cm3)
+                vol = 2 * np.pi * (r_val * 1.496e13) * ((r_edges[i+1]-r_edges[i])*1.496e13) * (dz * 1.496e13)
+
+                for sp in ab_arr.coords['species'].values:
+                    if "GRAIN" in sp: continue
+                    p, b, f = parse_species(sp)
+                    
+                    # Apply specific phase and grain bin execution filters
+                    if phase != "all" and (phase == "grain" and p not in ["surface", "mantle"] or phase != "grain" and p != phase): continue
+                    if grain_bin is not None and b != str(grain_bin): continue
+
+                    coef = count_target_atom(f, target_atom)
+                    if coef > 0:
+                        # Integrate particle count distributions over the global disk configuration mass profile
+                        tot_atoms = np.sum(ab_arr.isel(time=itime).sel(species=sp).values * nH * vol) * coef
+                        if tot_atoms > 0: global_species_contributions[f] = global_species_contributions.get(f, 0.0) + tot_atoms
+            except Exception as e:
+                if verbose: print(f"Error processing data for R={r_val}: {e}")
+
+    tot_sum = sum(global_species_contributions.values())
+    if tot_sum == 0: return
+
+    # --- GRAPHICAL CHART ASSEMBLY ---
+    sorted_sp = sorted({sp: (v/tot_sum)*100 for sp, v in global_species_contributions.items()}.items(), key=lambda x: x[1], reverse=True)[:spnumber]
+    fig, ax = plt.subplots(figsize=(10, 6))
+    bars = ax.bar([f"${re.sub(r'(\d+)', r'_{\1}', s[0])}$" for s in sorted_sp], [s[1] for s in sorted_sp], color=color, edgecolor='grey', alpha=0.85)
+    
+    # Annotate bar text labels detailing explicit numerical contributions
+    for bar in bars: ax.annotate(f'{bar.get_height():.2f}%', xy=(bar.get_x() + bar.get_width()/2, bar.get_height()), xytext=(0, 4), textcoords="offset points", ha='center', va='bottom', fontweight='bold')
+    ax.set_ylabel('Global Contribution (%)')
+    plt.show()
+
+
+import re
+import os
+from pathlib import Path
+import numpy as np
+import matplotlib.pyplot as plt
+
+def plot_top_species_per_radius(chempath, main_output_dict, target_atom="C", itime=-1,
+                                verbose=True, spnumber=5, phase="gas", grain_bin=None, cmap_name="tab10", rmin=None, rmax=None):
+    """
+    Plots the horizontal ranking breakdown of the top N volume-integrated chemical carrier 
+    species reservoirs containing a target element, segmented across distinct radial disk shells.
+
+    This routine evaluates chemical tracking configurations across separate concentric cylindrical 
+    envelopes. It integrates local species particle counts over the disk volume ($2\pi R \cdot \Delta R \cdot \Delta z$), 
+    ranks their relative localized budget percentages, and generates a structured horizontal bar plot 
+    featuring adaptive text annotations and radius boundaries.
+
+    Parameters
+    ----------
+    chempath : str or Path
+        The base repository path storing the 1D physical structural configurations.
+    main_output_dict : dict
+        A pipeline simulation data dictionary mapping discrete radial directory entries.
+    target_atom : str, optional
+        The specific elemental atom to calculate mass totals for (e.g., 'C', 'O', 'N'). Defaults to "C".
+    itime : int, optional
+        Temporal coordinates lookup point index. Defaults to -1 (final snapshot).
+    verbose : bool, optional
+        Enables runtime validation warning flags. Defaults to True.
+    spnumber : int, optional
+        Total ranked top dominant lines returned per radial shell. Defaults to 5.
+    phase : {'gas', 'grain', 'surface', 'mantle', 'all'}, optional
+        Filters isolated calculation structures by active volatile states. Defaults to "gas".
+    grain_bin : int or str, optional
+        Isolates analysis strictly to a specific grain size distribution bin index. Defaults to None.
+    cmap_name : str, optional
+        Color mapping look-up identity palette key. Defaults to "tab10".
+    rmin : float, optional
+        Inner radial bounds cut-off filter [AU]. Defaults to None.
+    rmax : float, optional
+        Outer radial bounds cut-off filter [AU]. Defaults to None.
+    """
+    allowed_elements = ['H', 'He', 'C', 'N', 'O', 'Si', 'S', 'Fe', 'Na', 'Mg', 'Cl', 'P', 'F']
+    if target_atom not in allowed_elements: raise ValueError(f"Atom '{target_atom}' unrecognized.")
+
+    chempath = Path(chempath)
+
+    def parse_species(species_name):
+        """Extracts the phase context, size bin index, and sanitized chemical formula from species codes."""
+        if species_name == 'e-': return "gas", None, "e-"
+        m = re.match(r'^([JK])(\d+)(.+)', species_name)
+        if m: return ("surface" if m.group(1) == 'J' else "mantle"), m.group(2), m.group(3).replace('c-', '').replace('l-', '')
+        return "gas", None, species_name.replace('c-', '').replace('l-', '')
+
+    def count_target_atom(clean_formula, target):
+        """Calculates specific atomic numbers contained within an isolated molecular compound formula string."""
+        if clean_formula == 'e-': return 0
+        f = clean_formula.split('+')[0].split('-')[0]
+        return sum(int(n) if n else 1 for atom, n in re.findall(r'([A-Z][a-z]*)(\d*)', f) if atom == target)
+
+    radii_map = {int(re.findall(r'\d+', str(k))[0]): k for k in main_output_dict.keys() if re.findall(r'\d+', str(k))}
+    radii = sorted([r for r in radii_map.keys() if (rmin is None or r >= rmin) and (rmax is None or r <= rmax)])
+
+    # Define radial shell wall boundaries for cell volume tracking integrations
+    r_edges = [radii[0]*0.9, radii[0]*1.1] if len(radii)==1 else [radii[0]-0.5*np.diff(radii)[0]] + [radii[i]+0.5*np.diff(radii)[i] for i in range(len(np.diff(radii)))] + [radii[-1]+0.5*np.diff(radii)[-1]]
+    
+    radial_plot_data = {}
+    all_encountered = set()
+
+    # --- SHELL INTEGRATION CORE LOOP ---
+    for i, r_val in enumerate(radii):
+        file_path = chempath / f"{r_val}AU" / "1D_static.dat"
+        if os.path.exists(file_path):
+            try:
+                z_points = np.loadtxt(file_path, comments='!', usecols=0)
+                sub_dict = main_output_dict[radii_map[r_val]]
+                ab_arr = sub_dict['abundances']
+                nH = sub_dict["H_number_density"][itime, :]
+
+                # Build asymmetric vertical boundary layers
+                dz = np.abs(np.diff([z_points[0]-0.5*np.diff(z_points)[0]] + [z_points[j]+0.5*np.diff(z_points)[j] for j in range(len(np.diff(z_points)))] + [max(0.0, z_points[-1]+0.5*np.diff(z_points)[-1])])) if len(z_points)>1 else np.array([z_points[0]])
+                
+                # Compute cylindrical coordinates cell volumes scaled to cgs units (cm3)
+                vol = 2 * np.pi * (r_val * 1.496e13) * ((r_edges[i+1]-r_edges[i])*1.496e13) * (dz * 1.496e13)
+
+                local_cont = {}
+                for sp in ab_arr.coords['species'].values:
+                    if "GRAIN" in sp: continue
+                    p, b, f = parse_species(sp)
+                    if phase != "all" and (phase == "grain" and p not in ["surface", "mantle"] or phase != "grain" and p != phase): continue
+                    if grain_bin is not None and b != str(grain_bin): continue
+
+                    coef = count_target_atom(f, target_atom)
+                    if coef > 0:
+                        # Integrate particle count distributions over the local disk configuration shell
+                        tot_atoms = np.sum(ab_arr.isel(time=itime).sel(species=sp).values * nH * vol) * coef
+                        if tot_atoms > 0: local_cont[f] = local_cont.get(f, 0.0) + tot_atoms
+
+                r_sum = sum(local_cont.values())
+                if r_sum > 0:
+                    # Sort and store carriers locally within the isolated radial segment
+                    top_entries = sorted({sp: (v/r_sum)*100 for sp, v in local_cont.items()}.items(), key=lambda x: x[1], reverse=True)[:spnumber]
+                    radial_plot_data[r_val] = top_entries
+                    for sp, _ in top_entries: all_encountered.add(sp)
+            except Exception as e:
+                if verbose: print(f"Error processing R={r_val}: {e}")
+
+    if not radial_plot_data: return
+    unique_sp = sorted(list(all_encountered))
+    cmap = plt.get_cmap(cmap_name)
+    species_colors = {sp: cmap(idx/max(1, len(unique_sp)-1)) for idx, sp in enumerate(unique_sp)}
+
+    y_labels, x_pct, bar_colors = [], [], []
+    sorted_radii = sorted(list(radial_plot_data.keys()), reverse=True)
+    
+    # Track index locations to place clean graphical partition line wraps
+    line_positions = []
+    current_idx = 0
+
+    for idx, r_val in enumerate(sorted_radii):
+        entries = radial_plot_data[r_val]
+        for sp, pct in reversed(entries):
+            y_labels.append(f"{r_val} AU — ${re.sub(r'(\d+)', r'_{\1}', sp)}$")
+            x_pct.append(pct)
+            bar_colors.append(species_colors[sp])
+        
+        current_idx += len(entries)
+        # Skip the final lower cell block to avoid drawing a boundary line beneath the plot
+        if idx < len(sorted_radii) - 1:
+            line_positions.append(current_idx - 0.5)
+
+    # Tighten figure canvas constraints to eliminate unneeded white margins block fields
+    fig, ax = plt.subplots(figsize=(11, max(3, len(y_labels) * 0.35 + 1.0)))
+    
+    # Render horizontal bars
+    bars = ax.barh(y_labels, x_pct, color=bar_colors, edgecolor='grey', alpha=0.85, height=0.7)
+    
+    # Affix explicit text label values immediately to the right edge of each horizontal bar element
+    ax.bar_label(bars, fmt='%.1f%%', padding=6, fontsize=9, fontweight='semibold')
+    
+    # Add horizontal division dashed lines between distinct radial shell blocks
+    for pos in line_positions:
+        ax.axhline(y=pos, color='gray', linestyle='--', linewidth=0.8, alpha=0.7)
+
+    # Generate standard scientific title headers
+    ax.set_title(f"Top {spnumber} Chemical Carriers of '{target_atom}' per Radial Shell\n(Phase: {phase.capitalize()})", 
+                 fontsize=13, fontweight='bold', pad=15)
+    
+    ax.set_xlabel('Local Budget Contribution (%)', fontweight='semibold')
+    
+    # Enforce strict clipping on the ordinate axis bounds to remove whitespace artifacts
+    ax.set_ylim(-0.5, len(y_labels) - 0.5)
+    
+    # Set an outer safety margin bound dynamically along the horizontal axis to prevent label clipping text overflows
+    ax.set_xlim(0, max(x_pct) * 1.12 if x_pct else 100)
+
+    plt.tight_layout()
+    plt.show()
+
+import re
+import os
+import numpy as np
+import matplotlib.pyplot as plt
+
+def plot_top_species_per_radius_midplane(chempath, main_output_dict, target_atom="C", itime=-1,
+                                         verbose=True, spnumber=5, phase="gas", grain_bin=None, cmap_name="tab10", rmin=None, rmax=None):
+    """
+    Computes and plots the horizontal tracking carrier breakdown limited strictly to the midplane ($z=0$) slice row elements.
+    Adds a horizontal separation line between each distinct radius, values text labels, dynamic title, and tight trimming.
+
+    This routine evaluates individual molecular carrier contributions to the budget of a targeted element 
+    along the disk midplane (approximated via index `-1` of the spatial dimension). It ranks the top $N$ 
+    dominant species for each radial shell and returns a localized, publication-grade horizontal bar chart.
+
+    Parameters
+    ----------
+    chempath : str or Path
+        The base repository path storing the 1D physical structural configurations.
+    main_output_dict : dict
+        A pipeline simulation data dictionary mapping discrete radial directory entries.
+    target_atom : str, optional
+        The specific elemental atom to calculate mass totals for (e.g., 'C', 'O', 'N'). Defaults to "C".
+    itime : int, optional
+        Temporal coordinates lookup point index. Defaults to -1 (final snapshot).
+    verbose : bool, optional
+        Enables runtime tracking messaging. Defaults to True.
+    spnumber : int, optional
+        Total ranked top dominant lines returned per radial shell. Defaults to 5.
+    phase : {'gas', 'grain', 'surface', 'mantle', 'all'}, optional
+        Filters isolated calculation structures by active volatile states. Defaults to "gas".
+    grain_bin : int or str, optional
+        Isolates analysis strictly to a specific grain size distribution bin index. Defaults to None.
+    cmap_name : str, optional
+        Color mapping look-up identity palette key. Defaults to "tab10".
+    rmin : float, optional
+        Inner radial bounds cut-off filter [AU]. Defaults to None.
+    rmax : float, optional
+        Outer radial bounds cut-off filter [AU]. Defaults to None.
+    """
+    allowed_elements = ['H', 'He', 'C', 'N', 'O', 'Si', 'S', 'Fe', 'Na', 'Mg', 'Cl', 'P', 'F']
+    if target_atom not in allowed_elements: raise ValueError(f"Atom '{target_atom}' unrecognized.")
+
+    def parse_species(species_name):
+        """Extracts the phase context, size bin index, and sanitized chemical formula from species codes."""
+        if species_name == 'e-': return "gas", None, "e-"
+        m = re.match(r'^([JK])(\d+)(.+)', species_name)
+        if m: return ("surface" if m.group(1) == 'J' else "mantle"), m.group(2), m.group(3).replace('c-', '').replace('l-', '')
+        return "gas", None, species_name.replace('c-', '').replace('l-', '')
+
+    def count_target_atom(clean_formula, target):
+        """Calculates specific atomic numbers contained within an isolated molecular compound formula string."""
+        if clean_formula == 'e-': return 0
+        f = clean_formula.split('+')[0].split('-')[0]
+        return sum(int(n) if n else 1 for atom, n in re.findall(r'([A-Z][a-z]*)(\d*)', f) if atom == target)
+
+    radii_map = {int(re.findall(r'\d+', str(k))[0]): k for k in main_output_dict.keys() if re.findall(r'\d+', str(k))}
+    radii = sorted([r for r in radii_map.keys() if (rmin is None or r >= rmin) and (rmax is None or r <= rmax)])
+
+    radial_plot_data = {}
+    all_encountered = set()
+
+    # --- MIDPLANE ACCOUNTING PHASE ---
+    for r_val in radii:
+        sub_dict = main_output_dict[radii_map[r_val]]
+        try:
+            ab_arr = sub_dict['abundances']
+            # Isolate the lowermost row mapping to the midplane z=0 boundary
+            nH_mid = sub_dict["H_number_density"][itime, -1]
+            y_ab = ab_arr.isel(time=itime, spatial=-1).values if 'spatial' in ab_arr.dims else ab_arr.isel(time=itime)[..., -1].values
+
+            local_cont = {}
+            for idx, sp in enumerate(ab_arr.coords['species'].values):
+                if "GRAIN" in sp: continue
+                p, b, f = parse_species(sp)
+                if phase != "all" and (phase == "grain" and p not in ["surface", "mantle"] or phase != "grain" and p != phase): continue
+                if grain_bin is not None and b != str(grain_bin): continue
+
+                coef = count_target_atom(f, target_atom)
+                if coef > 0:
+                    tot_atoms = y_ab[idx] * nH_mid * coef
+                    if tot_atoms > 0: local_cont[f] = local_cont.get(f, 0.0) + tot_atoms
+
+            r_sum = sum(local_cont.values())
+            if r_sum > 0:
+                top_entries = sorted({sp: (v/r_sum)*100 for sp, v in local_cont.items()}.items(), key=lambda x: x[1], reverse=True)[:spnumber]
+                radial_plot_data[r_val] = top_entries
+                for sp, _ in top_entries: all_encountered.add(sp)
+        except Exception as e:
+            if verbose: print(f"Error processing midplane at R={r_val}: {e}")
+
+    if not radial_plot_data: return
+    unique_sp = sorted(list(all_encountered))
+    cmap = plt.get_cmap(cmap_name)
+    species_colors = {sp: cmap(idx/max(1, len(unique_sp)-1)) for idx, sp in enumerate(unique_sp)}
+
+    y_labels, x_pct, bar_colors = [], [], []
+    sorted_radii = sorted(list(radial_plot_data.keys()), reverse=True)
+    
+    # Track array locations to place clean graphical partition wrappers
+    line_positions = []
+    current_idx = 0
+
+    for idx, r_val in enumerate(sorted_radii):
+        entries = radial_plot_data[r_val]
+        for sp, pct in reversed(entries):
+            y_labels.append(f"{r_val} AU — ${re.sub(r'(\d+)', r'_{\1}', sp)}$")
+            x_pct.append(pct)
+            bar_colors.append(species_colors[sp])
+        
+        current_idx += len(entries)
+        # Skip the final lower cell block to avoid drawing a boundary line beneath the plot
+        if idx < len(sorted_radii) - 1:
+            line_positions.append(current_idx - 0.5)
+
+    # Tighten figure canvas constraints to strip empty margins block fields
+    fig, ax = plt.subplots(figsize=(11, max(3, len(y_labels) * 0.35 + 1.0)))
+    
+    # Render discrete horizontal bars
+    bars = ax.barh(y_labels, x_pct, color=bar_colors, edgecolor='grey', alpha=0.85, height=0.7)
+    
+    # Affix explicit text label values immediately to the right edge of each horizontal bar element
+    ax.bar_label(bars, fmt='%.1f%%', padding=6, fontsize=9, fontweight='semibold')
+    
+    # Add separating lines dividing distinct radial shell blocks
+    for pos in line_positions:
+        ax.axhline(y=pos, color='black', linestyle='-', linewidth=1.2, alpha=0.7)
+
+    # Generate standard scientific title headers
+    ax.set_title(f"Top {spnumber} Midplane Chemical Carriers of '{target_atom}' per Radial Shell\n(Phase: {phase.capitalize()})", 
+                 fontsize=13, fontweight='bold', pad=15)
+
+    ax.set_xlabel('Disk Midplane Budget Contribution (%)', fontweight='semibold')
+    
+    # Enforce strict clipping on the ordinate axis bounds to remove whitespace artifacts
+    ax.set_ylim(-0.5, len(y_labels) - 0.5)
+    
+    # Set an outer safety margin bound dynamically along the horizontal axis to prevent label clipping text overflows
+    ax.set_xlim(0, max(x_pct) * 1.12 if x_pct else 105)
+    
+    # Render vertical grid columns
+    ax.grid(True, axis='x', linestyle=':', alpha=0.6)
+    
+    plt.tight_layout()
+    plt.show()
+
+def plot_species_evolution_with_grain_size_comparison(PIPE, MODEL_NAMES, target_radius, itime=-1,
+                                                      verbose=True, spnumber=5, cmap_name="tab10"):
+    """
+    Plots the absolute contribution profile distribution mapping key ice carriers as a function 
+    of dust grain radius ($\mu$m) across sizes configurations bins.
+
+    This utility tracks how volatile species load onto discrete ice dust grain populations.
+    It links simulation indices to real physical micrometer values, allowing cross-model evaluation 
+    of size-discretized chemistry profiles.
+
+    Parameters
+    ----------
+    PIPE : list
+        List of object tracking data pipelines.
+    MODEL_NAMES : list of str
+        The labels identifier corresponding to each simulation pipeline configuration.
+    target_radius : float, int, or list of same
+        The selected radial coordinate focus node value [AU].
+    itime : int, optional
+        Target time coordinate index. Defaults to -1.
+    verbose : bool, optional
+        Enables runtime tracking messaging. Defaults to True.
+    spnumber : int, optional
+        Total maximum discrete carriers mapped across profiles. Defaults to 5.
+    cmap_name : str, optional
+        Color identifier spectrum key string. Defaults to "tab10".
+    """
+    radii_list = [target_radius] if not isinstance(target_radius, list) else target_radius
+    radii_list = [int(r) for r in radii_list]
+
+    if len(MODEL_NAMES) != len(set(MODEL_NAMES)): MODEL_NAMES = [f"Model {i+1}" for i in range(len(PIPE))]
+
+    def get_grain_size_in_um(file_path, bin_index):
+        """Parses size-discretized parameters sheets to isolate physical micrometer scales."""
+        try:
+            with open(file_path, 'r') as file:
+                for line in file:
+                    line = line.strip()
+                    if not line or line.startswith('!'): continue
+                    if '!' in line: line = line.split('!')[0].strip()
+                    values = [float(val) for val in line.split()]
+                    if not values: continue
+                    num_grains = len(values) // 4
+                    return values[:num_grains][int(bin_index) - 1] * 10000.0
+            return None
+        except: return None
+
+    def parse_species(species_name):
+        """Isolates active surface or mantle markers to catch corresponding bin positions."""
+        if species_name == 'e-': return "gas", None, "e-"
+        grain_match = re.match(r'^([JK])(\d+)(.+)', species_name)
+        if grain_match:
+            p_code, g_bin, raw_formula = grain_match.groups()
+            return ("surface" if p_code == 'J' else "mantle"), g_bin, raw_formula.replace('c-', '').replace('l-', '')
+        return "gas", None, species_name.replace('c-', '').replace('l-', '')
+
+    def clean_molec(mol_name):
+        """Processes identification naming conventions into clean LaTeX math syntax."""
+        raw = re.sub(r"^[JK]\d+", "", mol_name)
+        f = re.sub(r"(\d+)", r"_{\1}", raw)
+        f = re.sub(r"([+-]+)$", r"^{\1}", f)
+        return f"${f}$"
+
+    AU_to_cm = 1.496e13
+    model_data = {}
+    all_encountered_species = set()
+    time_years_string = None
+
+    # --- CROSS-MODEL INTEGRATION MATRIX ---
+    for p_idx, p in enumerate(PIPE):
+        p_name = getattr(p, 'name', MODEL_NAMES[p_idx])
+        main_output_dict = p.chemistry
+        chempath = Path(p.chempath)
+        
+        radii_map = {int(re.findall(r'\d+', str(k))[0]): k for k in main_output_dict.keys() if re.findall(r'\d+', str(k))}
+        sorted_all_radii = sorted(list(radii_map.keys()))
+        model_data[p_name] = {}
+
+        for r_value in radii_list:
+            if r_value not in radii_map: continue
+            sub_dict = main_output_dict[radii_map[r_value]]
+            abundance_array = sub_dict['abundances']
+            nH_profile = sub_dict["H_number_density"][itime,:]
+            raw_species_list = list(abundance_array.coords['species'].values)
+
+            # Compute concentric area envelope shifts
+            r_idx = sorted_all_radii.index(r_value)
+            if len(sorted_all_radii) > 1:
+                r_midshifts = 0.5 * np.diff(sorted_all_radii)
+                r_edges = [sorted_all_radii[0] - r_midshifts[0]] + [sorted_all_radii[i] + r_midshifts[i] for i in range(len(r_midshifts))] + [sorted_all_radii[-1] - r_midshifts[-1]]
+            else:
+                r_edges = [r_value * 0.9, r_value * 1.1]
+
+            file_path = os.path.join(chempath, f"{r_value}AU", "1D_static.dat")
+            z_points = np.loadtxt(file_path, comments='!', usecols=0)
+            if len(z_points) > 1:
+                z_midshifts = 0.5 * np.diff(z_points)
+                z_edges = [z_points[0] - z_midshifts[0]] + [z_points[j] + z_midshifts[j] for j in range(len(z_midshifts))] + [max(0.0, z_points[-1] + z_midshifts[-1])]
+                dz = np.abs(np.diff(z_edges))
+            else:
+                dz = np.array([z_points[0] if z_points[0] > 0 else 1.0])
+
+            cell_volumes = 2 * np.pi * (float(r_value) * AU_to_cm) * ((r_edges[r_idx+1] - r_edges[r_idx]) * AU_to_cm) * (dz * AU_to_cm)
+            nH_2d, volumes_2d = nH_profile[np.newaxis, :], cell_volumes[np.newaxis, :]
+
+            available_bins_set = set()
+            species_metadata = {}
+            for sp in raw_species_list:
+                if "GRAIN" in sp: continue
+                sp_phase, sp_bin, clean_formula = parse_species(sp)
+                if sp_phase in ["surface", "mantle"] and sp_bin is not None:
+                    available_bins_set.add(sp_bin)
+                    species_metadata[sp] = (sp_phase, sp_bin, clean_formula)
+
+            sorted_bins = sorted(list(available_bins_set), key=lambda x: int(x)) if available_bins_set else []
+            if not sorted_bins: continue
+
+            bin_raw_data = {b: {} for b in sorted_bins}
+            local_species_scores = {}
+
+            # Integrate total molecular particles distributed across distinct bin channels
+            for sp in raw_species_list:
+                if sp not in species_metadata: continue
+                _, sp_bin, clean_formula = species_metadata[sp]
+                absolute_particles = np.sum(abundance_array.sel(species=sp).values * nH_2d * volumes_2d)
+                if absolute_particles > 0:
+                    bin_raw_data[sp_bin][clean_formula] = bin_raw_data[sp_bin].get(clean_formula, 0.0) + absolute_particles
+                    local_species_scores[clean_formula] = local_species_scores.get(clean_formula, 0.0) + absolute_particles
+
+            sorted_local = sorted(local_species_scores.items(), key=lambda x: x[1], reverse=True)
+            top_local_species = [item[0] for item in sorted_local[:spnumber]]
+            for sp in top_local_species: all_encountered_species.add(sp)
+
+            if time_years_string is None:
+                try: time_years_string = f"{abundance_array.coords['time'].values[itime] / 3.156e7:.0f}"
+                except: pass
+
+            model_data[p_name][r_value] = {'bin_raw_data': bin_raw_data, 'sorted_bins': sorted_bins, 'top_species': top_local_species, 'chempath': chempath}
+
+    # --- CHART GRID SUBPLOT RENDERING PHASE ---
+    num_models = len(PIPE)
+    model_names = list(model_data.keys())
+    num_radii = len(radii_list)
+
+    cols = num_models
+    rows = num_radii
+    fig, axes = plt.subplots(rows, cols, figsize=(5.5 * cols, 5 * rows), squeeze=False, sharey=True)
+
+    unique_species_list = sorted(list(all_encountered_species))
+    cmap = plt.colormaps.get_cmap(cmap_name)
+    species_colors = {sp: cmap(idx / max(1, len(unique_species_list)-1)) for idx, sp in enumerate(unique_species_list)}
+
+    for row_idx, r_value in enumerate(radii_list):
+        for col_idx, p_name in enumerate(model_names):
+            if r_value not in model_data[p_name]: continue
+            ax = axes[row_idx, col_idx]
+            struct = model_data[p_name][r_value]
+            bin_raw, sbins, local_top, cpath = struct['bin_raw_data'], struct['sorted_bins'], struct['top_species'], struct['chempath']
+
+            shared_grain_sizes_um = []
+            for b in sbins:
+                size_um = get_grain_size_in_um(cpath / f"{r_value}AU" / "1D_grain_sizes.in", b)
+                shared_grain_sizes_um.append(f"{size_um:.1f}" if size_um is not None else f"B{b}")
+
+            x_positions = np.arange(len(sbins))
+            for sp in local_top:
+                plot_pct = []
+                for b in sbins:
+                    tot = sum(bin_raw[b].values())
+                    plot_pct.append((bin_raw[b].get(sp, 0.0) / tot * 100) if tot > 0 else 0.0)
+
+                ax.plot(x_positions, plot_pct, label=clean_molec(sp), color=species_colors[sp], lw=1.8, marker='o', ms=4)
+
+            ax.set_xlabel('Grain Radius [µm]', fontsize=11)
+            ax.set_ylabel('Contribution (%)', fontsize=11)
+            ax.set_title(f"{p_name} @ {r_value} AU", fontsize=11, fontweight='bold')
+            ax.set_xticks(x_positions)
+            ax.set_xticklabels(shared_grain_sizes_um, fontsize=8, rotation=60)
+            ax.set_ylim(-2, 105)
+            ax.grid(True, linestyle="--", alpha=0.4)
+            ax.legend(loc='upper right', ncol=2, fontsize=9)
+
+    fig.suptitle(f'Top Carriers vs Grain Size Distribution — $t = {time_years_string}$ years' if time_years_string else 'Top Ice Carriers vs Grain Size', fontsize=15, y=0.99)
+    plt.tight_layout()
+    plt.show()
+
+
+import os
+import re
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+from pathlib import Path
+from scipy.interpolate import griddata
+from matplotlib.collections import PolyCollection
+from matplotlib.colors import LogNorm, Normalize
+
+def plot_ratio_midplane_gas_vs_grain(chempath, main_output_dict, s1="C", s2="O", itime=-1, starratio=None, verbose=True, xlim=None, ylim=None):
+    """
+    Plots the comparative midplane elemental abundance ratio ($S_1/S_2$) split between 
+    the volatile gas phase and the aggregated solid grain (ice mantle + surface) phase.
+
+    This function isolates the midplane row (index `-1`), separates molecular carriers 
+    by phase via regular expression signature matches, and performs an inventory 
+    of the constituent atomic reservoirs along the radial profile.
+
+    Parameters
+    ----------
+    chempath : str or Path
+        The base repository path storing the 1D physical structural configurations.
+    main_output_dict : dict
+        A pipeline simulation data dictionary mapping discrete radial directory entries.
+    s1 : str, optional
+        The numerator element symbol tracker (e.g., 'C'). Defaults to "C".
+    s2 : str, optional
+        The denominator element symbol tracker (e.g., 'O'). Defaults to "O".
+    itime : int, optional
+        The temporal coordinates index evaluated for snapshot mapping. Defaults to -1.
+    starratio : float, optional
+        An optional baseline reference value indicating initial stellar elemental ratios. Defaults to None.
+    verbose : bool, optional
+        Toggles print warning flags during parsing execution pipelines. Defaults to True.
+    xlim : tuple of float, optional
+        Radial distance horizontal viewing constraints. Defaults to None.
+    ylim : tuple of float, optional
+        Ordinate range bounds configuration constraints vector. Defaults to None.
+    """
+    if s1 not in ['H','He','C','N','O','Si','S','Fe','Na','Mg','Cl','P','F'] or s2 not in ['H','He','C','N','O','Si','S','Fe','Na','Mg','Cl','P','F']:
+        raise ValueError("Elements not supported.")
+
+    def parse_and_count(sp_name, element1, element2):
+        """Identifies the phase context and computes atomic stoichiometry for the given elements."""
+        if sp_name == 'e-' or 'GRAIN' in sp_name: return "ignore", 0, 0
+        # Surface 'J' or mantle 'K' signatures indicate solid phase adsorption carriers
+        m = re.match(r'^([JK])\d+(.+)', sp_name)
+        f = m.group(2).replace('c-', '').replace('l-', '').split('+')[0].split('-')[0] if m else sp_name.replace('c-', '').replace('l-', '').split('+')[0].split('-')[0]
+        composition = {atom: int(n) if n else 1 for atom, n in re.findall(r'([A-Z][a-z]*)(\d*)', f)}
+        return ("grain" if m else "gas"), composition.get(element1, 0), composition.get(element2, 0)
+
+    radii_map = {int(re.findall(r'\d+', str(k))[0]): k for k in main_output_dict.keys() if re.findall(r'\d+', str(k))}
+    radii = sorted(list(radii_map.keys()))
+
+    r_list, gas_r, grain_r = [], [], []
+    
+    # --- VOLATILE INVENTORY LOOP ---
+    for r in radii:
+        # Extract midplane coordinates strictly at the boundary column row (spatial index -1)
+        ab = main_output_dict[radii_map[r]]['abundances'].isel(time=itime, spatial=-1).values
+        species = list(main_output_dict[radii_map[r]]['abundances'].coords['species'].values)
+        
+        g1, g2, s1_tot, s2_tot = 0.0, 0.0, 0.0, 0.0
+        for idx, sp in enumerate(species):
+            phase, c1, c2 = parse_and_count(sp, s1, s2)
+            if phase == "gas": g1 += ab[idx]*c1; g2 += ab[idx]*c2
+            elif phase == "grain": s1_tot += ab[idx]*c1; s2_tot += ab[idx]*c2
+
+        r_list.append(float(r))
+        gas_r.append(g1/g2 if g2>0 else 0.0)
+        grain_r.append(s1_tot/s2_tot if s2_tot>0 else 0.0)
+
+    # --- RENDERING AND LABELS ---
+    fig, ax = plt.subplots(figsize=(9, 5))
+    ax.plot(r_list, gas_r, color="teal", marker='o', label='Gas')
+    ax.plot(r_list, grain_r, color="darkred", linestyle='--', marker='s', label='Grains (Ice)')
+    ax.set_xlabel('Radius R [AU]')
+    ax.set_ylabel(f'Midplane Atomic Ratio [{s1}/{s2}]')
+    if starratio: ax.axhline(starratio, color='black', linestyle='--',label=f"{s1}/{s2} of star")
+    ax.grid(True, linestyle=':')
+    ax.legend()
+    ax.set_title(f"{s1}/{s2} at t = {main_output_dict[10]['time'][itime]/(365.25*86400):.0f} yrs")
+    plt.show()
+
+
+def plot_grain_properties_midplane_comparison(PIPE, MODEL_NAMES, key_list=['CO'], itime=-1, fracab=True,
+                                              verbose=True, xlim=None, ylim=None, Tmin=None, Tmax=None, vmin=None, vmax=None,
+                                              temp_colormap='hot', ab_colormap='plasma', common_scale=True, species_scale_common=False):
+    """
+    Renders 2D midplane ($R$ vs. $a_{grain}$) cross-sections tracking dust temperature mapping 
+    and size-discretized solid ice carrier distributions simultaneously.
+
+    This routine maps models side-by-side or stacks items row-by-row depending on pipeline input sizes.
+    It builds custom unstructured polygon geometry collections to naturally mirror varying spatial 
+    grid footprints without standard interpolation artifacts.
+
+    Parameters
+    ----------
+    PIPE : list
+        Collection of model objects storing astrochemical spatial output matrices.
+    MODEL_NAMES : list of str
+        The labels identifier corresponding to each simulation pipeline configuration.
+    key_list : list of str, optional
+        Target tracking ice formulas to render across separate rows. Defaults to ['CO'].
+    itime : int, optional
+        Snapshot index selection modifier. Defaults to -1 (final snapshot).
+    fracab : bool, optional
+        Toggles relative fractional mapping ($n_{ice}/n_H$) or absolute particle number counts. Defaults to True.
+    verbose : bool, optional
+        Toggles reporting messages for missing directory inputs. Defaults to True.
+    xlim, ylim : tuple of float, optional
+        Spatial axes clipping window coordinates boundaries. Defaults to None.
+    Tmin, Tmax : float, optional
+        Temperature normalization scalar crop parameters. Defaults to None.
+    vmin, vmax : float, optional
+        Ice abundance scaling normal values parameters. Defaults to None.
+    temp_colormap : str, optional
+        Matplotlib coloring profile key identifier tracking thermal fields. Defaults to 'hot'.
+    ab_colormap : str, optional
+        Matplotlib coloring profile key identifier tracking chemical fields. Defaults to 'plasma'.
+    common_scale : bool, optional
+        Synchronizes vertical color ranges for thermal rendering frames globally. Defaults to True.
+    species_scale_common : bool, optional
+        Synchronizes vertical color ranges for ice carrier frames globally along rows. Defaults to False.
+    """
+    if isinstance(key_list, str): key_list = [key_list]
+    key_list = list(dict.fromkeys(key_list))
+    if len(MODEL_NAMES) != len(set(MODEL_NAMES)): MODEL_NAMES = [f"Model {i+1}" for i in range(len(PIPE))]
+
+    def parse_grain_sizes_midplane(file_path):
+        """Extracts spatial distribution matrices along the midplane grid row boundary (-1)."""
+        try:
+            valid_lines = []
+            with open(file_path, 'r') as file:
+                for line in file:
+                    line = line.strip()
+                    if not line or line.startswith('!'): continue
+                    if '!' in line: line = line.split('!')[0].strip()
+                    values = [float(val) for val in line.split()]
+                    if values: valid_lines.append(values)
+            # The last line in the static file mirrors the physical parameters of the midplane
+            midplane_values = valid_lines[-1]
+            num_grains = len(midplane_values) // 4
+            return [r * 10000.0 for r in midplane_values[:num_grains]], midplane_values[2 * num_grains : 3 * num_grains]
+        except: return None, None
+
+    def clean_molec(mol_name):
+        """Processes identification naming conventions into clean LaTeX math syntax."""
+        return f"${re.sub(r'([+-]+)$', r'^{\1}', re.sub(r'(\d+)', r'_{\1}', mol_name))}$"
+
+    model_data = {}
+    time_years_string = None
+
+    # --- MIDPLANE GEOMETRY HARVESTING PHASE ---
+    for p_idx, p in enumerate(PIPE):
+        p_name = getattr(p, 'name', MODEL_NAMES[p_idx])
+        main_output_dict = p.chemistry
+        chempath = Path(p.chempath)
+        
+        radii_map = {int(re.findall(r'\d+', str(k))[0]): k for k in main_output_dict.keys() if re.findall(r'\d+', str(k))}
+        extracted_radii = sorted(list(radii_map.keys()))
+        
+        disk_radii, grain_sizes_matrix, grain_temps_matrix = [], [], []
+        species_abundance_matrices = {key: [] for key in key_list}
+
+        for r_val in extracted_radii:
+            radii_um, temps_k = parse_grain_sizes_midplane(chempath / f"{r_val}AU" / "1D_grain_sizes.in")
+            if radii_um is None: continue
+            
+            disk_radii.append(r_val)
+            grain_sizes_matrix.append(radii_um)
+            grain_temps_matrix.append(temps_k)
+            
+            if time_years_string is None:
+                try: time_years_string = f"{p.chemistry[radii_map[r_val]]['abundances'].coords['time'].values[itime] / 3.156e7:.0f}"
+                except: pass
+
+            # Accumulate size-discretized solid components (Surface J + Mantle K carriers)
+            for key in key_list:
+                bin_values = []
+                ab_array = main_output_dict[radii_map[r_val]]['abundances']
+                for b_idx in range(1, len(radii_um) + 1):
+                    v_cell = 0.0
+                    s_name, m_name = f"J{b_idx:02d}{key}", f"K{b_idx:02d}{key}"
+                    if s_name in ab_array.coords['species'].values: v_cell += float(ab_array.isel(time=itime).sel(species=s_name).values[-1])
+                    if m_name in ab_array.coords['species'].values: v_cell += float(ab_array.isel(time=itime).sel(species=m_name).values[-1])
+                    if not fracab: v_cell *= main_output_dict[radii_map[r_val]]["H_number_density"][itime, -1]
+                    bin_values.append(v_cell)
+                species_abundance_matrices[key].append(bin_values)
+
+        # Retain raw list geometry containers to prevent truncation errors on non-uniform cell allocations
+        model_data[p_name] = {
+            'disk_radii': np.array(disk_radii), 
+            'grain_sizes': grain_sizes_matrix,
+            'grain_temps': grain_temps_matrix, 
+            'abundance_matrices': species_abundance_matrices
+        }
+
+    num_models = len(PIPE)
+    model_names = list(model_data.keys())
+    total_plot_items = 1 + len(key_list) 
+
+    # --- SUBPLOT GEOMETRY GRID LAYOUTS ---
+    if num_models == 1:
+        cols = min(3, total_plot_items)
+        rows = (total_plot_items + cols - 1) // cols
+        fig, axes = plt.subplots(rows, cols, figsize=(5.5 * cols, 4.0 * rows), squeeze=False)
+        axes = axes.flatten()
+    else:
+        cols = num_models
+        rows = total_plot_items
+        fig, axes = plt.subplots(rows, cols, figsize=(5.5 * cols, 4.0 * rows), squeeze=False)
+
+    if common_scale:
+        all_temps = []
+        for m in model_names:
+            for row in model_data[m]['grain_temps']:
+                all_temps.extend(row)
+        all_temps = np.array(all_temps)
+        global_tmin = Tmin if Tmin is not None else all_temps.min()
+        global_tmax = Tmax if Tmax is not None else all_temps.max()
+
+    # --- 1. RENDER THERMAL PROPERTIES MAPS (Row = 0) ---
+    for col_idx, p_name in enumerate(model_names):
+        ax = axes[0] if num_models == 1 else axes[0, col_idx]
+        struct = model_data[p_name]
+        radii = struct['disk_radii']
+        temps = struct['grain_temps']
+        
+        if len(radii) == 0: continue
+        
+        r_edges = [radii[0]-0.5, radii[0]+0.5] if len(radii)==1 else [radii[0]-0.5*np.diff(radii)[0]] + [radii[i]+0.5*np.diff(radii)[i] for i in range(len(np.diff(radii)))] + [radii[-1]+0.5*np.diff(radii)[-1]]
+        
+        polygons, temp_values = [], []
+        for i in range(len(radii)):
+            num_grain_bins = len(temps[i])
+            y_edges = np.arange(num_grain_bins + 1) - 0.5
+            for j in range(num_grain_bins):
+                polygons.append([(r_edges[i], y_edges[j]), (r_edges[i+1], y_edges[j]), (r_edges[i+1], y_edges[j+1]), (r_edges[i], y_edges[j+1])])
+                temp_values.append(temps[i][j])
+        
+        flat_temps = np.array(temp_values)
+        actual_tmin = global_tmin if common_scale else (Tmin if Tmin is not None else flat_temps.min())
+        actual_tmax = global_tmax if common_scale else (Tmax if Tmax is not None else flat_temps.max())
+        
+        norm_t = Normalize(vmin=actual_tmin, vmax=actual_tmax)
+        coll = PolyCollection(polygons, array=flat_temps, cmap=temp_colormap, norm=norm_t, edgecolors='none')
+        ax.add_collection(coll)
+        
+        fig.colorbar(plt.cm.ScalarMappable(norm=norm_t, cmap=temp_colormap), ax=ax, label=r"$T_{\rm grain}$ [K]")
+        ax.set_title(f"{p_name}\nGrain Temp $T_{{grain}}$", fontsize=11, fontweight='bold')
+        
+        num_grain_bins_local = len(struct['grain_sizes'][0])
+        ax.set_yticks(np.arange(num_grain_bins_local))
+        ax.set_yticklabels([f"{s:.1f}" for s in struct['grain_sizes'][0]])
+        ax.set_xlim(xlim if xlim else (radii.min(), radii.max()))
+        ax.set_ylim(ylim if ylim else (-0.5, num_grain_bins_local - 0.5))
+        ax.set_xlabel('Radius R [AU]')
+        ax.set_ylabel('Grain Size [µm]')
+
+    # --- 2. RENDER CHEMICAL PROFILE ICE MAPS ---
+    for row_idx, key in enumerate(key_list):
+        current_item_idx = row_idx + 1
+        
+        if species_scale_common:
+            all_vals = []
+            for m in model_names:
+                for row in model_data[m]['abundance_matrices'][key]:
+                    all_vals.extend(row)
+            all_vals = np.array(all_vals)
+            row_vmin = vmin if vmin is not None else (all_vals[all_vals > 0].min() if len(all_vals[all_vals > 0]) > 0 else 1e-15)
+            row_vmax = vmax if vmax is not None else all_vals.max()
+
+        for col_idx, p_name in enumerate(model_names):
+            ax = axes[current_item_idx] if num_models == 1 else axes[current_item_idx, col_idx]
+            struct = model_data[p_name]
+            radii = struct['disk_radii']
+            ab_matrix = struct['abundance_matrices'][key]
+            
+            if len(radii) == 0: continue
+            
+            r_edges = [radii[0]-0.5, radii[0]+0.5] if len(radii)==1 else [radii[0]-0.5*np.diff(radii)[0]] + [radii[i]+0.5*np.diff(radii)[i] for i in range(len(np.diff(radii)))] + [radii[-1]+0.5*np.diff(radii)[-1]]
+            
+            polygons, values = [], []
+            for i in range(len(radii)):
+                num_grain_bins = len(ab_matrix[i])
+                y_edges = np.arange(num_grain_bins + 1) - 0.5
+                for j in range(num_grain_bins):
+                    polygons.append([(r_edges[i], y_edges[j]), (r_edges[i+1], y_edges[j]), (r_edges[i+1], y_edges[j+1]), (r_edges[i], y_edges[j+1])])
+                    values.append(ab_matrix[i][j])
+            
+            vals_array = np.array(values)
+            
+            if species_scale_common:
+                v_min_loc, v_max_loc = row_vmin, row_vmax
+            else:
+                v_min_loc = vmin if vmin is not None else (vals_array[vals_array>0].min() if len(vals_array[vals_array>0])>0 else 1e-15)
+                v_max_loc = vmax if vmax is not None else vals_array.max()
+            
+            norm_ab = LogNorm(vmin=v_min_loc, vmax=v_max_loc) if v_max_loc/v_min_loc > 10 else Normalize(vmin=v_min_loc, vmax=v_max_loc)
+            
+            coll = PolyCollection(polygons, array=vals_array, cmap=ab_colormap, norm=norm_ab, edgecolors='none')
+            ax.add_collection(coll)
+            fig.colorbar(plt.cm.ScalarMappable(norm=norm_ab, cmap=ab_colormap), ax=ax, label="Ice Abundance")
+            ax.set_title(f"{p_name}\n{clean_molec(key)} Ice Profile", fontsize=11)
+            
+            num_grain_bins_local = len(struct['grain_sizes'][0])
+            ax.set_yticks(np.arange(num_grain_bins_local))
+            ax.set_yticklabels([f"{s:.1f}" for s in struct['grain_sizes'][0]])
+            ax.set_xlim(xlim if xlim else (radii.min(), radii.max()))
+            ax.set_ylim(ylim if ylim else (-0.5, num_grain_bins_local - 0.5))
+            ax.set_xlabel('Radius R [AU]')
+            ax.set_ylabel('Grain Size [µm]')
+
+    if num_models == 1 and len(axes) > total_plot_items:
+        for empty_ax in axes[total_plot_items:]:
+            fig.delaxes(empty_ax)
+
+    fig.suptitle(f'Midplane Grain Properties — $t = {time_years_string}$ years' if time_years_string else 'Midplane Grain Properties', fontsize=13, fontweight='bold', y=0.99)
+    plt.tight_layout()
+    plt.show()
+
+
+def density2D_grid_comparison(PIPE, MODEL_NAMES, vmin=1e-30, vmax=1e-15, cmap='gnuplot2',
+                              dens_type='mass', xlim=None, ylim=None, dust=None, select_bins=None, figsize=(14, 16)):
+    """
+    Compares 2D poloidal dust density structures across multiple simulation model configurations.
+
+    This routine reads RADMC-3D configuration files (`amr_grid.inp`, `dust_density.inp`), 
+    reconstructs spatial rectilinear grids in cylindrical projections, and visualizes individual 
+    dust size bins alongside total aggregate densities side-by-side.
+
+    Parameters
+    ----------
+    PIPE : list
+        List of data wrapper objects containing targeted pipeline run paths.
+    MODEL_NAMES : list of str
+        The labels identifier corresponding to each simulation pipeline configuration.
+    vmin : float, optional
+        Logarithmic color normalization minimum limit threshold. Defaults to 1e-30.
+    vmax : float, optional
+        Logarithmic color normalization maximum limit threshold. Defaults to 1e-15.
+    cmap : str, optional
+        Matplotlib coloring profile index lookup key. Defaults to 'gnuplot2'.
+    dens_type : str, optional
+        Descriptive label representing density array units. Defaults to 'mass'.
+    xlim, ylim : tuple of float, optional
+        Spatial visualization viewing limits window bounds. Defaults to None.
+    dust : placeholder, optional
+        Legacy variable slot maintained for code structural signatures parity. Defaults to None.
+    select_bins : list of int, optional
+        Explicit selection list isolating targeted dust bins to process. Defaults to None.
+    figsize : tuple of float, optional
+        Canvas dimensions bounding coordinates envelope. Defaults to (14, 16).
+    """
+    if len(MODEL_NAMES) != len(set(MODEL_NAMES)): 
+        MODEL_NAMES = [f"Model {i+1}" for i in range(len(PIPE))]
+        
+    model_structures = {}
+    autocm = 1.495978707e13  # Astronomical Unit converted to centimeters (cm)
+
+    # --- RADMC-3D OUTPUT PARSING STREAM ---
+    for p_idx, p in enumerate(PIPE):
+        p_name = getattr(p, 'name', MODEL_NAMES[p_idx])
+        base_path = str(Path(p.thermalpath)) + '/'
+        
+        grid_vals = pd.read_table(base_path + 'amr_grid.inp', engine='python', skiprows=5)
+        nr = int(grid_vals.columns[0].split()[0])
+        nt = int(grid_vals.columns[0].split()[1])
+        g_vals = grid_vals[grid_vals.columns[0]].values
+
+        dens_vals = pd.read_table(base_path + 'dust_density.inp', engine='python', header=None, skiprows=3)[0].values
+        nspecies = int(len(dens_vals) / (nr * nt))
+        dens_tensor = np.reshape(dens_vals, (nspecies, nt, nr)).copy()
+        
+        r_edge = g_vals[:nr+1] / autocm
+        theta_edge = g_vals[nr+1:nr+1+nt+1].copy()
+        theta_edge[-1] = np.pi # Limit projection boundary edges cleanly at pi radians
+        rr_edge, tt_edge = np.meshgrid(r_edge, theta_edge)
+        
+        dens_tensor[dens_tensor <= 1e-100] = 1e-100
+        sizes = np.atleast_1d(np.loadtxt(base_path + 'dust_sizes.inp')) if os.path.isfile(base_path + 'dust_sizes.inp') else None
+
+        valid_bins = select_bins if select_bins else list(range(nspecies))
+        model_structures[p_name] = {
+            'R': rr_edge * np.sin(tt_edge), 'Z': rr_edge * np.cos(tt_edge),
+            'dens': dens_tensor[valid_bins], 'sizes': sizes[valid_bins] if sizes is not None else None,
+            'nspecies_display': len(valid_bins), 'original_bins': valid_bins
+        }
+
+    num_models = len(model_structures)
+    model_names = list(model_structures.keys())
+    nspecies_ref = model_structures[model_names[0]]['nspecies_display']
+    
+    total_plot_items = nspecies_ref + 1  # Map bins frames plus the integrated total profile frame
+
+    # --- MULTI-PANEL SUBPLOT SELECTION MECHANICS ---
+    if num_models == 1:
+        cols = min(4, total_plot_items)
+        rows = (total_plot_items + cols - 1) // cols
+        fig, axes = plt.subplots(rows, cols, figsize=figsize,sharex=True, sharey=True)
+        axes = axes.flatten() 
+    else:
+        cols = num_models
+        rows = total_plot_items
+        fig, axes = plt.subplots(rows, cols, figsize=figsize, sharex=True, sharey=True)
+
+    if vmax is None:
+        all_max_vals = [model_structures[m]['dens'].max() for m in model_names]
+        vmax = max(all_max_vals)
+
+    im = None
+    # --- RENDER DISPLAY CONTROLLER ---
+    for item_idx in range(total_plot_items):
+        for col_idx, p_name in enumerate(model_names):
+            struct = model_structures[p_name]
+            
+            if num_models == 1:
+                ax = axes[item_idx]
+            else:
+                ax = axes[item_idx, col_idx]
+            
+            if item_idx < nspecies_ref:
+                plot_data = struct['dens'][item_idx]
+                sz = struct['sizes'][item_idx] if struct['sizes'] is not None else None
+                title_str = f"bin {struct['original_bins'][item_idx]+1} ({f'{sz/1e3:.1f} mm' if sz>=1e3 else f'{sz:.2f} µm'})" if sz else f"bin {struct['original_bins'][item_idx]+1}"
+            else:
+                plot_data = struct['dens'].sum(axis=0)
+                title_str = f"Total {dens_type.title()}"
+
+            im = ax.pcolormesh(struct['R'], struct['Z'], plot_data, cmap=cmap, shading='auto', norm=LogNorm(vmin=vmin, vmax=vmax))
+            ax.set_title(title_str, fontsize=11)
+            ax.grid(True, linestyle=":", alpha=0.3)
+            
+            if xlim: ax.set_xlim(xlim)
+            if ylim: ax.set_ylim(ylim)
+            
+            if item_idx == 0 and num_models > 1:
+                ax.text(0.5, 1.2, p_name, transform=ax.transAxes, fontsize=12, fontweight='bold', ha='center')
+            elif item_idx == 0 and num_models == 1:
+                fig.suptitle(f"Model: {p_name}", fontsize=14, fontweight='bold', y=0.98)
+
+    # --- COLORBAR ALIGNMENT LAYOUT PACKING ---
+    if num_models == 1:
+        fig.subplots_adjust(right=0.88, hspace=0.35, wspace=0.25)
+        cbar_ax = fig.add_axes([0.91, 0.15, 0.02, 0.7])
+        fig.colorbar(im, cax=cbar_ax, label=f"Density Field [{dens_type}]")
+        
+        for item_idx in range(total_plot_items):
+            axes[item_idx].set_xlabel('r [au]', fontsize=10)
+            axes[item_idx].set_ylabel('z [au]', fontsize=10)
+            
+        if len(axes) > total_plot_items:
+            for empty_ax in axes[total_plot_items:]:
+                fig.delaxes(empty_ax)
+    else:
+        fig.colorbar(im, cax=fig.add_axes([0.92, 0.15, 0.015, 0.7]), label=f"Density Field [{dens_type}]")
+        for ax in axes[-1, :]: ax.set_xlabel('r [au]', fontsize=12)
+        for ax in axes[:, 0]: ax.set_ylabel('z [au]', fontsize=12)
+        fig.subplots_adjust(right=0.90, left=0.08, bottom=0.06, top=0.90, hspace=0.35, wspace=0.15)
+
+    plt.show()
+
+import os
+import re
+from pathlib import Path
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+from matplotlib.colors import LogNorm
+from matplotlib.lines import Line2D
+from matplotlib.ticker import LogFormatterMathtext
+
+# Create a formatter object for scientific notation formatting
+formatter = LogFormatterMathtext()
+
+def density2D_grid_comparison_contours(PIPE, MODEL_NAMES, vmin=1e-30, vmax=1e-15, cmap='gnuplot2',
+                              dens_type='mass', xlim=None, ylim=None, select_bins=None, 
+                              figsize=(14, 7), ndensity=1e-18):
+    """
+    Compares 2D total dust density structures across multiple simulation models in a 
+    single horizontal row of subplots, overlaying distinct high-contrast isodensity contours 
+    for each localized dust grain size configuration.
+
+    This function extracts AMR grid parameters and multi-species density arrays from 
+    RADMC-3D configuration files, computes the aggregate background dust mass profile, 
+    and traces localized dust grain decoupling edges via specific threshold contour levels.
+
+    Parameters
+    ----------
+    PIPE : list
+        Collection of model data pipelines storing the RADMC-3D configuration directories.
+    MODEL_NAMES : list of str
+        The labels identifier corresponding to each simulation pipeline configuration.
+    vmin : float, optional
+        Logarithmic color normalization minimum limit threshold. Defaults to 1e-30.
+    vmax : float, optional
+        Logarithmic color normalization maximum limit threshold. If None, scales to the global peak. Defaults to 1e-15.
+    cmap : str, optional
+        Matplotlib color map lookup string designation used for background rendering. Defaults to 'gnuplot2'.
+    dens_type : str, optional
+        Descriptive string category mapping data classification labels. Defaults to 'mass'.
+    xlim : tuple of float, optional
+        Cylindrical radial distance horizontal visualization viewing windows limits [AU]. Defaults to None.
+    ylim : tuple of float, optional
+        Vertical height spatial boundaries vertical visualization viewing windows limits [AU]. Defaults to None.
+    select_bins : list of int, optional
+        Explicit selection list isolating targeted dust bins to process. Defaults to None.
+    figsize : tuple of float, optional
+        Dimensions of the generated figure window canvas. Defaults to (14, 7).
+    ndensity : float, optional
+        The specific density value threshold used to plot the structural isocontours [$g \cdot cm^{-3}$]. Defaults to 1e-18.
+    """
+    if len(MODEL_NAMES) != len(set(MODEL_NAMES)): 
+        MODEL_NAMES = [f"Model {i+1}" for i in range(len(PIPE))]
+        
+    model_structures = {}
+    autocm = 1.495978707e13  # Astronomical Unit converted to centimeters (cm)
+
+    # --- RADMC-3D INPUT CORRELATION LOOP ---
+    for p_idx, p in enumerate(PIPE):
+        p_name = getattr(p, 'name', MODEL_NAMES[p_idx])
+        base_path = str(Path(p.thermalpath)) + '/'
+        
+        # Read the unstructured Adaptive Mesh Refinement (AMR) grid definitions
+        grid_vals = pd.read_table(base_path + 'amr_grid.inp', engine='python', skiprows=5)
+        nr = int(grid_vals.columns[0].split()[0])
+        nt = int(grid_vals.columns[0].split()[1])
+        g_vals = grid_vals[grid_vals.columns[0]].values
+
+        # Load raw binary or plain-text volumetric density arrays
+        dens_vals = pd.read_table(base_path + 'dust_density.inp', engine='python', header=None, skiprows=3)[0].values
+        nspecies = int(len(dens_vals) / (nr * nt))
+        dens_tensor = np.reshape(dens_vals, (nspecies, nt, nr)).copy()
+        
+        # Convert boundaries from spherical coordinates to cylindrical spatial structures [AU]
+        r_edge = g_vals[:nr+1] / autocm
+        theta_edge = g_vals[nr+1:nr+1+nt+1].copy()
+        theta_edge[-1] = np.pi
+        rr_edge, tt_edge = np.meshgrid(r_edge, theta_edge)
+        
+        # Sanitize zero or unphysical values below floors to protect logarithmic mapping transformations
+        dens_tensor[dens_tensor <= 1e-100] = 1e-100
+        sizes = np.atleast_1d(np.loadtxt(base_path + 'dust_sizes.inp')) if os.path.isfile(base_path + 'dust_sizes.inp') else None
+
+        valid_bins = select_bins if select_bins else list(range(nspecies))
+        model_structures[p_name] = {
+            'R_edge': rr_edge * np.sin(tt_edge), 'Z_edge': rr_edge * np.cos(tt_edge),
+            'dens': dens_tensor[valid_bins], 'sizes': sizes[valid_bins] if sizes is not None else None,
+            'original_bins': valid_bins
+        }
+
+    num_models = len(model_structures)
+    model_names = list(model_structures.keys())
+    
+    # --- CANVAS GRID HIERARCHY INITIALIZATION (1 Row, N Columns Matrix) ---
+    fig, axes = plt.subplots(1, num_models, figsize=figsize, sharex=True, sharey=True, squeeze=False)
+    axes = axes.flatten()
+
+    if vmax is None:
+        vmax = max([model_structures[m]['dens'].sum(axis=0).max() for m in model_names])
+
+    im = None
+    
+    # Allocate dedicated qualitative color tracks to contrast size bin vectors
+    n_species_total = len(valid_bins)
+    contour_cm = plt.colormaps.get_cmap('tab10_r' if n_species_total <= 10 else 'tab20')
+    
+    legend_handles = []
+    legend_labels = []
+
+    # --- HORIZONTAL SUBPLOT RENDERER ---
+    for col_idx, p_name in enumerate(model_names):
+        struct = model_structures[p_name]
+        ax = axes[col_idx]
+        
+        # 1. Compute and plot total aggregate background dust distribution
+        total_dens = struct['dens'].sum(axis=0)
+        im = ax.pcolormesh(struct['R_edge'], struct['Z_edge'], total_dens, cmap=cmap, shading='auto', norm=LogNorm(vmin=vmin, vmax=vmax))
+        
+        # Line contour coordinates must evaluate localized block centers rather than cell vertex corners
+        R_center = 0.5 * (struct['R_edge'][:-1, :-1] + struct['R_edge'][1:, 1:])
+        Z_center = 0.5 * (struct['Z_edge'][:-1, :-1] + struct['Z_edge'][1:, 1:])
+        
+        # 2. Overlay isolated isodensity threshold contours tracking structural aerodynamic settling boundaries
+        for idx, bin_idx in enumerate(struct['original_bins']):
+            bin_data = struct['dens'][idx]
+            sz = struct['sizes'][idx] if struct['sizes'] is not None else None
+            
+            if sz:
+                label_str = f"Bin {bin_idx+1} ({f'{sz/1e3:.1f} mm' if sz>=1e3 else f'{sz:.2f} µm'})"
+            else:
+                label_str = f"Bin {bin_idx+1}"
+            
+            # Trace contour levels only if the localized data profile intersects the threshold line bounds
+            if bin_data.max() > ndensity:
+                color = contour_cm(idx % (10 if n_species_total <= 10 else 20))
+                
+                cs = ax.contour(R_center, Z_center, bin_data, levels=[ndensity], 
+                                colors=[color], linewidths=1.6)
+                
+                # Harvest legend configurations safely from the first column subplot panel to prevent duplicated tracking maps
+                if col_idx == 0:
+                    line = Line2D([0], [0], color=color, linewidth=1.6)
+                    legend_handles.append(line)
+                    legend_labels.append(label_str)
+
+        # --- PANEL STRUCTURAL ADJUSTMENTS ---
+        ax.set_aspect('equal', adjustable='box') 
+        ax.set_title(p_name, fontsize=13, fontweight='bold')
+        ax.grid(True, linestyle=":", alpha=0.3)
+        
+        if xlim: ax.set_xlim(xlim)
+        if ylim: ax.set_ylim(ylim)
+        ax.set_xlabel('r [au]', fontsize=11)
+
+    axes[0].set_ylabel('z [au]', fontsize=11)
+    
+    # --- GLOBAL PACKING OUTSIDE PANEL CORES ---
+    fig.subplots_adjust(right=0.85, left=0.08, bottom=0.28, top=0.88, wspace=0.15)
+    
+    # Attach a shared vertical colorbar on the far-right margins perimeter boundary
+    cbar_ax = fig.add_axes([0.88, 0.32, 0.02, 0.50])
+    fig.colorbar(im, cax=cbar_ax, label=f"Total Dust Density")
+
+    # --- RENDER GLOBAL ANNOTATED LEGEND EMBEDDED AT THE BASE CANVAS MARGINS ---
+    if legend_handles:
+        fig.legend(handles=legend_handles, labels=legend_labels, 
+                   loc='lower center', bbox_to_anchor=(0.46, 0.04),
+                   ncol=3, fontsize=10, 
+                   title=f"Grain Sizes (Isocontours at {formatter(ndensity)} $g.cm^{{-3}}$)", title_fontsize=11)
+
+    plt.show()
+
+
+import os
+import re
+from pathlib import Path
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+from matplotlib.colors import LogNorm, Normalize
+
+def temperature2D_grid_comparison(PIPE, MODEL_NAMES, vmin=1.0, vmax=1e3, cmap='gnuplot2',
+                                  xlim=None, ylim=None, snowline_temp=20.0, select_bins=None, 
+                                  figsize=(14, 12), dust=None, log_scale=True):
+    """
+    Compares 2D poloidal dust temperature cross-sections across multiple modeling simulations.
+
+    This routine reads RADMC-3D configuration structures (`amr_grid.inp`, `dust_temperature.dat`) 
+    and displays dust temperature distribution panels for discrete size selections. It natively 
+    handles models with varying grid numbers and provides user-controlled linear or logarithmic 
+    scaling profiles with an optional black contour line tracing thermal snowlines.
+
+    - If 1 model: Grid layout with max 4 columns, wrapping each dust temperature bin.
+    - If >1 model: Matrix layout with 1 column per model run and 1 row per dust bin.
+
+    Parameters
+    ----------
+    PIPE : list
+        Collection of model objects storing astrochemical spatial output matrices.
+    MODEL_NAMES : list of str
+        The labels identifier corresponding to each simulation pipeline configuration.
+    vmin : float, optional
+        Colorbar scaling normalization minimum limit value [K]. Defaults to 1.0.
+    vmax : float, optional
+        Colorbar scaling normalization maximum limit value [K]. Defaults to 1000.0.
+    cmap : str, optional
+        Matplotlib sequential color palette lookup string key identifier. Defaults to 'gnuplot2'.
+    xlim : tuple of float, optional
+        Cylindrical radial distance horizontal visualization limits window bounds [AU]. Defaults to None.
+    ylim : tuple of float, optional
+        Vertical altitude vertical visualization limits window bounds [AU]. Defaults to None.
+    snowline_temp : float, optional
+        Target thermal contour boundary level traced in black (e.g., 20K for CO freeze-out transitions). Defaults to 20.0.
+    select_bins : list of int, optional
+        Explicit selection list isolating targeted dust bins to process. Defaults to None.
+    figsize : tuple of float, optional
+        Cylindrical coordinates system layout dimensional vector. Defaults to (14, 12).
+    dust : placeholder, optional
+        Legacy variable slot maintained for system architecture signature parity. Defaults to None.
+    log_scale : bool, optional
+        If True, enforces a LogNorm scaling profile transform across colorbars. 
+        If False, falls back to standard linear Normalize profiles. Defaults to True.
+    """
+    if len(MODEL_NAMES) != len(set(MODEL_NAMES)): 
+        MODEL_NAMES = [f"Model {i+1}" for i in range(len(PIPE))]
+        
+    model_structures = {}
+    autocm = 1.495978707e13  # Astronomical Unit converted to centimeters (cm)
+
+    # --- RADMC-3D OUTPUT PARSING STREAM ---
+    for p_idx, p in enumerate(PIPE):
+        p_name = getattr(p, 'name', MODEL_NAMES[p_idx])
+        base_path = str(Path(p.thermalpath)) + '/'
+        
+        # Read the unstructured Adaptive Mesh Refinement (AMR) grid definitions
+        grid_vals = pd.read_table(base_path + 'amr_grid.inp', engine='python', skiprows=5)
+        nr = int(grid_vals.columns[0].split()[0])
+        nt = int(grid_vals.columns[0].split()[1])
+        g_vals = grid_vals[grid_vals.columns[0]].values
+
+        # Load raw multi-species temperature array rows
+        temp_vals = pd.read_table(base_path + 'dust_temperature.dat', engine='python', header=None, skiprows=3)[0].values
+        nspecies = int(len(temp_vals) / (nr * nt))
+        temp_tensor = np.reshape(temp_vals, (nspecies, nt, nr))
+
+        # Convert boundaries from spherical coordinates to cylindrical spatial structures [AU]
+        r_edge = g_vals[:nr+1] / autocm
+        theta_edge = g_vals[nr+1:nr+1+nt+1].copy()
+        theta_edge[-1] = np.pi # Limit projection boundary edges cleanly at pi radians
+        rr_edge, tt_edge = np.meshgrid(r_edge, theta_edge)
+        
+        R = rr_edge * np.sin(tt_edge)
+        Z = rr_edge * np.cos(tt_edge)
+        
+        # Cell centers calculation required for continuous tracking line contouring
+        R_center = 0.25 * (R[:-1, :-1] + R[1:, :-1] + R[:-1, 1:] + R[1:, 1:])
+        Z_center = 0.25 * (Z[:-1, :-1] + Z[1:, :-1] + Z[:-1, 1:] + Z[1:, 1:])
+
+        sizes = np.atleast_1d(np.loadtxt(base_path + 'dust_sizes.inp')) if os.path.isfile(base_path + 'dust_sizes.inp') else None
+        valid_bins = select_bins if select_bins else list(range(nspecies))
+
+        model_structures[p_name] = {
+            'R': R, 'Z': Z, 'R_center': R_center, 'Z_center': Z_center,
+            'temp': temp_tensor[valid_bins], 'sizes': sizes[valid_bins] if sizes is not None else None,
+            'nspecies_display': len(valid_bins), 'original_bins': valid_bins
+        }
+
+    num_models = len(model_structures)
+    model_names = list(model_structures.keys())
+    nspecies_ref = model_structures[model_names[0]]['nspecies_display']
+
+    # --- MULTI-PANEL SUBPLOT SELECTION MECHANICS ---
+    if num_models == 1:
+        cols = min(4, nspecies_ref)
+        rows = (nspecies_ref + cols - 1) // cols
+        fig, axes = plt.subplots(rows, cols, figsize=figsize, sharex=True, sharey=True)
+        axes = axes.flatten()  # 1D fluid packaging for single-model grids wrapping natively
+    else:
+        cols = num_models
+        rows = nspecies_ref
+        fig, axes = plt.subplots(rows, cols, figsize=figsize, sharex=True, sharey=True)
+
+    if vmax is None:
+        all_max_vals = [model_structures[m]['temp'].max() for m in model_names]
+        vmax = max(all_max_vals)
+
+    # Dynamic colorbar profile configuration mapping based on user choices
+    norm_method = LogNorm(vmin=vmin, vmax=vmax) if log_scale else Normalize(vmin=vmin, vmax=vmax)
+
+    im = None
+    # --- VISUALIZATION DRAWING CORE LOOP ---
+    for row_idx in range(nspecies_ref):
+        for col_idx, p_name in enumerate(model_names):
+            struct = model_structures[p_name]
+            plot_data = struct['temp'][row_idx]
+            
+            if num_models == 1:
+                ax = axes[row_idx]
+            else:
+                ax = axes[row_idx, col_idx]
+            
+            sz = struct['sizes'][row_idx] if struct['sizes'] is not None else None
+            title_str = f"bin {struct['original_bins'][row_idx]+1} ({f'{sz/1e3:.1f} mm' if sz>=1e3 else f'{sz:.2f} µm'})" if sz else f"bin {struct['original_bins'][row_idx]+1}"
+
+            # Application of selected profile norm method mappings
+            im = ax.pcolormesh(struct['R'], struct['Z'], plot_data, cmap=cmap, shading='auto', norm=norm_method)
+            ax.set_title(title_str, fontsize=11)
+            ax.grid(True, linestyle=":", alpha=0.3)
+
+            # --- ENFORCE STRICT STABLE PHYSICAL 1:1 GEOMETRY ---
+            ax.set_aspect('equal', adjustable='box')
+
+            if xlim: ax.set_xlim(xlim)
+            if ylim: ax.set_ylim(ylim)
+
+            # Trace physical snowline transitions limits
+            if snowline_temp:
+                try: 
+                    ax.contour(struct['R_center'], struct['Z_center'], plot_data, levels=[float(snowline_temp)], colors='black', linewidths=1.5)
+                except: 
+                    pass
+
+            # Manage header strings positions dynamically
+            if row_idx == 0 and num_models > 1:
+                ax.text(0.5, 1.2, p_name, transform=ax.transAxes, fontsize=12, fontweight='bold', ha='center')
+            elif row_idx == 0 and num_models == 1:
+                fig.suptitle(f"Model: {p_name}", fontsize=14, fontweight='bold', y=0.98)
+
+    # --- COLORBAR PACKING MANAGEMENT ---
+    if num_models == 1:
+        fig.subplots_adjust(right=0.88, hspace=0.35, wspace=0.25)
+        cbar_ax = fig.add_axes([0.91, 0.15, 0.02, 0.7])
+        fig.colorbar(im, cax=cbar_ax, label=r'Dust Temperature $T_\mathrm{d}$ [K]')
+        
+        for row_idx in range(nspecies_ref):
+            axes[row_idx].set_xlabel('r [au]', fontsize=10)
+            axes[row_idx].set_ylabel('z [au]', fontsize=10)
+            
+        if len(axes) > nspecies_ref:
+            for empty_ax in axes[nspecies_ref:]:
+                fig.delaxes(empty_ax)
+    else:
+        fig.colorbar(im, cax=fig.add_axes([0.93, 0.15, 0.015, 0.7]), label=r'Dust Temperature $T_\mathrm{d}$ [K]')
+        for ax in axes[-1, :]: ax.set_xlabel('r [au]', fontsize=11)
+        for ax in axes[:, 0]: ax.set_ylabel('z [au]', fontsize=11)
+        fig.subplots_adjust(right=0.90, left=0.08, bottom=0.08, top=0.90, hspace=0.35, wspace=0.22)
+
+    plt.show()
+
+def plot_gas_fraction_map(PIPE, MODEL_NAMES, molecule="CO", itime=-1, threshold=50.0, overlay_color='black',
+                          verbose=True, xlim=None, ylim=None, rmin=None, rmax=None, colormap="RdYlBu_r"):
+    """
+    Plots smoothly interpolated 2D vertical cross-section maps ($R$ vs. $z$) displaying the 
+    gas-phase fraction of a chemical species relative to its total volumetric budget 
+    (Gas + Surface + Mantle).
+
+    This function loops over size-discretized chemical profiles, aggregates solid and gas counts 
+    integrated over finite grid volumes ($2\pi R \cdot \Delta R \cdot \Delta z$), uses 2D griddata 
+    interpolation pipelines to map smooth concentration structures, and overlays designated 
+    snowline percentage boundary vectors.
+
+    Parameters
+    ----------
+    PIPE : list
+        Collection of data pipeline wrappers containing chemical history profiles.
+    MODEL_NAMES : list of str
+        The labels identifier corresponding to each simulation pipeline configuration.
+    molecule : str, optional
+        Target tracking formula symbol identifying chemical families. Defaults to "CO".
+    itime : int, optional
+        Timestep coordinate matrix element selection. Defaults to -1.
+    threshold : float or tuple of float, optional
+        Target percentage limit definitions tracking transition boundaries markers. Defaults to 50.0.
+    overlay_color : str, optional
+        Visual coloring identity applied to drawn lines or hatches. Defaults to 'black'.
+    verbose : bool, optional
+        Toggles diagnostic reporting statements. Defaults to True.
+    xlim, ylim : tuple of float, optional
+        Cylindrical coordinate systems clipping boundaries parameters. Defaults to None.
+    rmin, rmax : float, optional
+        Concentric spatial radial clipping range thresholds [AU]. Defaults to None.
+    colormap : str, optional
+        Matplotlib lookup color code mapping variable string. Defaults to "RdYlBu_r".
+    """
+    if len(MODEL_NAMES) != len(PIPE):
+        raise ValueError("MODEL_NAMES and PIPE must have the same length")
+        
+    if len(MODEL_NAMES) != len(set(MODEL_NAMES)):
+        MODEL_NAMES = [f"Model {i+1}" for i in range(len(PIPE))]
+
+    AU_to_cm = 1.496e13
+
+    def clean_molec(mol_name):
+        """Processes complex naming indices into sanitized LaTeX strings."""
+        f = re.sub(r"(\d+)", r"_{\1}", mol_name)
+        f = re.sub(r"([+-]+)$", r"^{\1}", f)
+        return f"${f}$"
+
+    num_models = len(PIPE)
+    fig, axes = plt.subplots(1, num_models, figsize=(6 * num_models, 5), squeeze=False, sharex=True, sharey=True)
+    
+    global_max_z = 0.0
+    cf = None
+    time_years_string = None
+
+    # --- DATA CONVERSION ENGINE LOOP ---
+    for col_idx, p in enumerate(PIPE):
+        p_name = getattr(p, 'name', MODEL_NAMES[col_idx])
+        ax = axes[0, col_idx]
+        
+        main_output_dict = p.chemistry
+        chempath = Path(p.chempath)
+        
+        radii_map = {}
+        for original_key in main_output_dict.keys():
+            digits = re.findall(r'\d+', str(original_key))
+            if digits:
+                try: radii_map[int(digits[0])] = original_key
+                except ValueError: continue
+                    
+        extracted_radii = sorted(list(radii_map.keys()))
+        
+        sorted_radii = []
+        for r in extracted_radii:
+            if rmin is not None and r < rmin: continue
+            if rmax is not None and r > rmax: continue
+            sorted_radii.append(r)
+
+        if not sorted_radii:
+            if verbose: print(f"No columns found within specified boundaries.")
+            continue
+
+        disk_radii, grid_all_z, scat_R, scat_Z, scat_Perc = [], [], [], [], []
+
+        if len(sorted_radii) > 1:
+            r_midshifts = 0.5 * np.diff(sorted_radii)
+            r_edges = [sorted_radii[0] - r_midshifts[0]] + [sorted_radii[i] + r_midshifts[i] for i in range(len(r_midshifts))] + [sorted_radii[-1] + r_midshifts[-1]]
+        else:
+            r_edges = [sorted_radii[0] - 0.5, sorted_radii[0] + 0.5]
+
+        # --- GRID RECONSTRUCTION PROCESSING ---
+        for i, r_val in enumerate(sorted_radii):
+            file_path = chempath / f"{r_val}AU" / "1D_static.dat"
+            if not os.path.exists(file_path):
+                if verbose: print(f"File not found: {file_path}. Skipping radius.")
+                continue
+                
+            orig_key = radii_map[r_val]
+            sub_dict = main_output_dict[orig_key]
+            abundance_array = sub_dict['abundances']
+            nH_profile = sub_dict["H_number_density"][itime, :]  
+            available_species = abundance_array.coords['species'].values
+            
+            try:
+                z_points = np.loadtxt(file_path, comments='!', usecols=0)
+            except Exception as e:
+                if verbose: print(f"Error loading {file_path}: {e}")
+                continue
+                
+            grid_all_z.extend(list(z_points))
+
+            if len(z_points) > 1:
+                z_midshifts = 0.5 * np.diff(z_points)
+                z_edges = [z_points[0] - z_midshifts[0]] + [z_points[j] + z_midshifts[j] for j in range(len(z_midshifts))] + [max(0.0, z_points[-1] + z_midshifts[-1])]
+                dz_cells = np.abs(np.diff(z_edges))
+            else:
+                z_edges = [max(0.0, z_points[0] - 0.5), z_points[0] + 0.5]
+                dz_cells = np.array([1.0])
+                
+            global_max_z = max(global_max_z, max(z_edges))
+            disk_radii.append(r_val)
+            
+            r_left, r_right = r_edges[i], r_edges[i+1]
+            dR = (r_right - r_left) * AU_to_cm
+            R_center = float(r_val) * AU_to_cm
+            
+            gas_name = molecule
+            ice_names = []
+            for sp in available_species:
+                if sp.endswith(molecule) and (sp.startswith('J') or sp.startswith('K')):
+                    if re.match(r'^[JK]\d+' + re.escape(molecule) + r'$', sp):
+                        ice_names.append(sp)
+
+            y_abundances = abundance_array.isel(time=itime)
+
+            # Sum absolute values over finite spatial mesh increments
+            for j in range(len(z_points)):
+                dz = dz_cells[j] * AU_to_cm
+                cell_volume = 2 * np.pi * R_center * dR * dz
+                nH_local = float(nH_profile[j])
+                
+                y_gas = float(y_abundances.sel(species=gas_name).values[j]) if gas_name in available_species else 0.0
+                
+                y_ice = 0.0
+                for ice_sp in ice_names:
+                    y_ice += float(y_abundances.sel(species=ice_sp).values[j])
+                    
+                n_abs_gas = y_gas * nH_local * cell_volume
+                n_abs_ice = y_ice * nH_local * cell_volume
+                total_particles = n_abs_gas + n_abs_ice
+                
+                gas_percentage = (n_abs_gas / total_particles) * 100.0 if total_particles > 0.0 else 100.0
+
+                scat_R.append(r_val)
+                scat_Z.append(z_points[j])
+                scat_Perc.append(gas_percentage)
+                
+                if time_years_string is None:
+                    try:
+                        time_seconds = abundance_array.coords['time'].values[itime]
+                        time_years_string = f"{time_seconds/3.156e7:.0f}"
+                    except: pass
+
+        if not scat_R: continue
+
+        scat_R, scat_Z, scat_Perc = np.array(scat_R), np.array(scat_Z), np.array(scat_Perc)
+        disk_radii_arr = np.array(disk_radii)
+
+        # Build regular tracking mesh arrays to safely drive SciPy interpolation loops
+        grid_R, grid_Z = np.meshgrid(
+            np.linspace(disk_radii_arr.min(), disk_radii_arr.max(), 400),
+            np.linspace(min(grid_all_z), max(grid_all_z), 400)
+        )
+
+        grid_Percentage = griddata((scat_R, scat_Z), scat_Perc, (grid_R, grid_Z), method='linear')
+        contour_levels = np.linspace(0.0, 100.0, 101)
+        color_norm = plt.cm.colors.Normalize(vmin=0.0, vmax=100.0)
+
+        cf = ax.contourf(grid_R, grid_Z, grid_Percentage, levels=contour_levels, cmap=colormap, norm=color_norm, extend='both')
+        
+        # Enforce higher order cubic interpolation arrays strictly to smooth overlay line paths
+        grid_Percentage_smooth = griddata((scat_R, scat_Z), scat_Perc, (grid_R, grid_Z), method='cubic')
+
+        # --- OVERLAY INTERPOLATION DRAWING ---
+        try:
+            if isinstance(threshold, (list, tuple)) and len(threshold) == 2:
+                t_low, t_high = float(min(threshold)), float(max(threshold))
+                cs_zone = ax.contourf(grid_R, grid_Z, grid_Percentage_smooth, levels=[t_low, t_high], colors='none', hatches=['////'])   
+                
+                target_collections = cs_zone.collections if hasattr(cs_zone, 'collections') and cs_zone.collections else (cs_zone.artists if hasattr(cs_zone, 'artists') and cs_zone.artists else [ax.collections[-1]])
+                for col in target_collections:
+                    col.set_edgecolor(overlay_color)
+                    col.set_linewidth(0.5) 
+                
+                hatch_patch = plt.Rectangle((0, 0), 1, 1, fill=False, edgecolor=overlay_color, hatch='////', linewidth=0.5)
+                ax.legend(handles=[hatch_patch], labels=[f'Transition ({t_low:.0f}%-{t_high:.0f}%)'], loc='upper right', frameon=True, fontsize=9)
+            else:
+                t_val = float(threshold)
+                ax.contour(grid_R, grid_Z, grid_Percentage_smooth, levels=[t_val], colors=overlay_color, linestyles='solid', linewidths=1.7)
+                
+                from matplotlib.lines import Line2D
+                proxy_line = Line2D([0], [0], color=overlay_color, linestyle='solid', linewidth=1.7)
+                ax.legend(handles=[proxy_line], labels=[f'Snowline ({t_val:.0f}%)'], loc='upper right', frameon=True, fontsize=9)
+        except Exception as e:
+            if verbose: print(f"Warning: Could not render threshold overlay structures. {e}")
+
+        ax.set_xlabel('Disk Radius R [AU]', fontsize=11)
+        ax.set_ylabel('Altitude $z$ [AU]', fontsize=11)
+        ax.set_title(f"{p_name}", fontsize=12, fontweight='bold')
+        ax.grid(True, linestyle=":", alpha=0.3)
+        ax.tick_params(labelsize=11)
+        if xlim is not None: ax.set_xlim(xlim)
+
+    if cf is not None:
+        cbar_ax = fig.add_axes([0.91, 0.15, 0.015, 0.7])
+        fig.colorbar(cf, cax=cbar_ax, label=f"Gas-phase Fraction [ % of Total {clean_molec(molecule)} (Gas+J+K) ]", ticks=np.linspace(0, 100, 11), extendfrac=0)
+                          
+    for ax in axes.flatten():
+        ax.set_ylim(ylim if ylim is not None else (0.0, global_max_z * 1.05))
+
+    title_suffix = f' — $t = {time_years_string}$ years' if time_years_string else ''
+    fig.suptitle(f"Gas-phase Volumetric Reservoir Distribution Map — {clean_molec(molecule)}{title_suffix}", fontsize=13, fontweight='bold', y=0.98)
+    fig.subplots_adjust(right=0.89, left=0.08, bottom=0.15, top=0.85, wspace=0.15)
     plt.show()

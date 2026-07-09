@@ -255,16 +255,28 @@ def gas_temperature(temp, thermpath='thermal/'):
                 f.write(f"{temp[ix, iy]:.6e}\n")
 
 
-def lines(species='CO', format='leiden', thermpath='thermal/'):
-    '''
-    Desc: write lines.inp
-    Args: species, format
-    '''
-    f = open(thermpath + "lines.inp","w")
-    f.write("2\n")
-    f.write("1\n")
-    f.write("{} {} 0 0 0".format(species,format))
-    f.close()
+def lines(species, format='leiden', thermpath='thermal/'):
+    """
+    Desc: Write the lines.inp file for multiple species (RADMC-3D)
+    Args:
+        species_list (list): List of molecule/atom names (e.g., ['co', 'h2o'])
+        format_list (str or list): Input format(s) ('leiden' or 'linelist').
+                                   Can be a single string (applied to all species)
+                                   or a list of the same length as species_list.
+        thermpath (str): Path to the destination directory.
+    """
+    if isinstance(species, str):
+        species = [species]
+    n_species = len(species)
+    if isinstance(format, str):
+        formats = [format] * n_species
+    else:
+        formats = format
+    with open(thermpath + "lines.inp", "w") as f:
+        f.write("2\n")
+        f.write(f"{n_species}\n")
+        for spec, fmt in zip(species, formats):
+            f.write(f"{spec} {fmt} 0 0 0\n")
 
 
 def gas_velocity(star_mass, r, theta, phi, object="disk", thermpath='thermal/'):
